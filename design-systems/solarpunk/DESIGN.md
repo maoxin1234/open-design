@@ -15,7 +15,7 @@ Solarpunk is a hopeful vision of the future: human-scale technology embedded in 
 
 - **Primary:** `#4D7C4B` — Sunlit fern green. Use for primary actions, key links, and the main focal accent.
 - **Secondary:** `#D4A03C` — Warm solar gold. Use for highlights, badges, energy metaphors, and secondary emphasis.
-- **Tertiary:** `#5A8F9E` — Clear-sky teal. Use for water, air, data visualization, and calm informational moments.
+- **Tertiary:** `#6397A6` — Clear-sky teal. Use for water, air, data visualization, calm informational moments, and info badge fills.
 - **Success:** `#65A30D` — Fresh leaf green.
 - **Warning:** `#D97706` — Sunflower amber.
 - **Danger:** `#DC2626` — Terracotta red, used sparingly.
@@ -31,6 +31,7 @@ Color usage rules:
 - Use Surface (#FDFCF7) for large backgrounds; Surface-2 (#F5F1E8) for cards.
 - Keep body copy on Text (#1F291D) for legibility.
 - Reserve Secondary (#D4A03C) for highlights, solar/energy metaphors, and key data points.
+- On the default light surfaces, treat Secondary (#D4A03C), Success (#65A30D), and Tertiary (#6397A6) as background/fill accents paired with Text (#1F291D). Do not use these hues as standalone foreground text on Surface or Surface-2.
 - Avoid cold blues, neon purples, or dark cyberpunk palettes.
 
 ## 3. Typography
@@ -63,7 +64,7 @@ Color usage rules:
 - **Buttons:** Primary action uses `#4D7C4B` with cream text; secondary actions use `#F5F1E8` with forest text. Use pill or large-radius shapes. Add subtle hover transitions.
 - **Inputs:** soft focus-visible states with a gold or green ring, clear labels, and parchment backgrounds.
 - **Cards/sections:** use Surface-2 (`#F5F1E8`) backgrounds, large radii (16–24px), and minimal shadows. Prefer 1px border in Surface-3 over heavy shadows.
-- **Badges:** use solar gold (`#D4A03C`) for energy/status, leaf green (`#65A30D`) for success, sky teal (`#5A8F9E`) for info.
+- **Badges:** use solar gold (`#D4A03C`) for energy/status fills, leaf green (`#65A30D`) for success fills, and sky teal (`#6397A6`) for info fills. Keep badge text in deep forest (`#1F291D`) so status labels stay accessible on the default parchment surfaces. Do not use the accent colors as badge text directly on light surfaces.
 - **Icons:** line-style, rounded stroke, botanical or solar motifs when relevant. Avoid sharp, angular, or industrial icons.
 
 ## 7. Motion & Interaction
