@@ -241,4 +241,44 @@ describe('claude-stream per-request usage capture', () => {
     const analytics = scanRunEventsForPerRequestUsageAnalytics(asRunEvents(events));
     expect(analytics.reconciles_aggregate).toBe(false);
   });
+
+  it('does NOT certify reconciliation when only cache tokens drift', () => {
+    // input/output sums match the aggregate exactly, but the per-request cache
+    // creation/read sums do not — the flag must be false, not a partial pass.
+    const events: Event[] = [
+      {
+        type: 'request_usage',
+        requestId: 'msg_a',
+        usage: {
+          input_tokens: 30,
+          output_tokens: 4,
+          cache_creation_input_tokens: 5,
+          cache_read_input_tokens: 1,
+        },
+      },
+      {
+        type: 'request_usage',
+        requestId: 'msg_b',
+        usage: {
+          input_tokens: 12,
+          output_tokens: 6,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 2,
+        },
+      },
+      {
+        type: 'usage',
+        usage: {
+          input_tokens: 42, // == 30 + 12 ✓
+          output_tokens: 10, // == 4 + 6 ✓
+          cache_creation_input_tokens: 99, // != 5 + 0 ✗
+          cache_read_input_tokens: 3, // == 1 + 2 ✓
+        },
+      },
+    ];
+    const analytics = scanRunEventsForPerRequestUsageAnalytics(asRunEvents(events));
+    expect(analytics.input_tokens_sum).toBe(42);
+    expect(analytics.output_tokens_sum).toBe(10);
+    expect(analytics.reconciles_aggregate).toBe(false);
+  });
 });

@@ -219,6 +219,8 @@ export function scanRunEventsForPerRequestUsageAnalytics(
   };
   let aggregateInput: number | undefined;
   let aggregateOutput: number | undefined;
+  let aggregateCacheCreation: number | undefined;
+  let aggregateCacheRead: number | undefined;
 
   for (const ev of events) {
     if (ev?.event !== 'agent') continue;
@@ -244,14 +246,26 @@ export function scanRunEventsForPerRequestUsageAnalytics(
       // final `result.usage` as the run-level number.
       aggregateInput = firstNumber(data.usage, ['input_tokens', 'prompt_tokens']);
       aggregateOutput = firstNumber(data.usage, ['output_tokens', 'completion_tokens']);
+      aggregateCacheCreation = firstNumber(data.usage, ['cache_creation_input_tokens']);
+      aggregateCacheRead = firstNumber(data.usage, ['cache_read_input_tokens']);
     }
   }
 
+  // The #4610 invariant covers the whole token surface, not just prompt/
+  // completion: a run whose input/output match but whose cache creation/read
+  // tokens drift has NOT reconciled. Fold every aggregate field that
+  // `result.usage` reported into the boolean (each compared only when the
+  // aggregate carries it, mirroring the input/output leniency), so the
+  // telemetry flag can't certify a partial match.
   let reconciles: boolean | null = null;
-  if (records.length > 0 && (aggregateInput !== undefined || aggregateOutput !== undefined)) {
-    const inputOk = aggregateInput === undefined || sums.input_tokens === aggregateInput;
-    const outputOk = aggregateOutput === undefined || sums.output_tokens === aggregateOutput;
-    reconciles = inputOk && outputOk;
+  const aggregateFields: Array<[number | undefined, number]> = [
+    [aggregateInput, sums.input_tokens],
+    [aggregateOutput, sums.output_tokens],
+    [aggregateCacheCreation, sums.cache_creation_input_tokens],
+    [aggregateCacheRead, sums.cache_read_input_tokens],
+  ];
+  if (records.length > 0 && aggregateFields.some(([agg]) => agg !== undefined)) {
+    reconciles = aggregateFields.every(([agg, sum]) => agg === undefined || sum === agg);
   }
 
   return {
