@@ -553,6 +553,7 @@ function collectAgentEvents(
   const diagnosticCounts = new Map<string, number>();
   let thinkingCount = 0;
   let usageCount = 0;
+  let requestUsageCount = 0;
   const source =
     typeof agentId === 'string' && agentId.trim().length > 0
       ? agentId.trim()
@@ -586,6 +587,7 @@ function collectAgentEvents(
           files?: unknown;
           pendingCandidateChars?: unknown;
           suppressing?: unknown;
+          requestId?: unknown;
         }
       | null
       | undefined;
@@ -680,6 +682,22 @@ function collectAgentEvents(
         },
         metadata: {
           diagnostic_name: diagnosticName,
+        },
+      });
+    } else if (type === 'request_usage' && typeof data?.requestId === 'string') {
+      // One Langfuse event per model request, keyed by the provider request id
+      // (`message.id`), so request-level cost/percentile analysis has a per-
+      // request source instead of only the run-level aggregate (#4610).
+      const index = requestUsageCount;
+      requestUsageCount += 1;
+      out.push({
+        id: `request-usage-${index}`,
+        name: 'agent-request-usage',
+        timestamp,
+        input: { ...eventInput('request_usage'), request_id: data.requestId },
+        output: {
+          request_id: data.requestId,
+          ...(data.usage && typeof data.usage === 'object' ? { usage: data.usage } : {}),
         },
       });
     }

@@ -17,10 +17,17 @@
 
 import { describe, expect, it } from 'vitest';
 import { createClaudeStreamHandler } from '../../src/runtimes/claude-stream.js';
+import { scanRunEventsForPerRequestUsageAnalytics } from '../../src/run-analytics-observability.js';
 // Untyped replay-mock helper (plain .mjs, no shipped declarations) — imported
 // so the per-request capture path is validated against the real mock output.
 // @ts-expect-error: no type declarations for the mocks helper
 import { renderAsClaude } from '../../../../mocks/lib/format-claude.mjs';
+
+// Wrap the parser's live SSE events as persisted run.events (`event: 'agent'`,
+// `data: <payload>`), the shape the analytics/telemetry scanners consume.
+function asRunEvents(events: Event[]) {
+  return events.map((data, id) => ({ id, event: 'agent', data }));
+}
 
 type Event = Record<string, unknown>;
 
@@ -184,5 +191,54 @@ describe('claude-stream per-request usage capture', () => {
     expect(sum('output_tokens')).toBe(runLevel.output_tokens);
     expect(sum('output_tokens')).toBe(100);
     expect(sum('cache_read_input_tokens')).toBe(runLevel.cache_read_input_tokens);
+  });
+
+  it('rolls per-request records into run telemetry keyed by request_id, reconciling with result.usage', () => {
+    const { events, sink } = collect();
+    const handler = createClaudeStreamHandler(sink);
+    feed(handler, [
+      {
+        type: 'assistant',
+        message: {
+          id: 'msg_a',
+          content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }],
+          stop_reason: 'tool_use',
+          usage: { input_tokens: 30, output_tokens: 4, cache_read_input_tokens: 1 },
+        },
+      },
+      {
+        type: 'assistant',
+        message: {
+          id: 'msg_b',
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 12, output_tokens: 6, cache_read_input_tokens: 2 },
+        },
+      },
+      {
+        type: 'result',
+        subtype: 'success',
+        usage: { input_tokens: 42, output_tokens: 10, cache_read_input_tokens: 3 },
+      },
+    ]);
+
+    // The analytics scanner that feeds PostHog `run_finished` per-request
+    // coverage properties — one record per model request, keyed by request_id,
+    // sum reconciling with the run-level aggregate.
+    const analytics = scanRunEventsForPerRequestUsageAnalytics(asRunEvents(events));
+    expect(analytics.request_count).toBe(2);
+    expect(analytics.records.map((r) => r.request_id)).toEqual(['msg_a', 'msg_b']);
+    expect(analytics.input_tokens_sum).toBe(42);
+    expect(analytics.output_tokens_sum).toBe(10);
+    expect(analytics.reconciles_aggregate).toBe(true);
+  });
+
+  it('flags non-reconciling per-request sums', () => {
+    const events: Event[] = [
+      { type: 'request_usage', requestId: 'msg_a', usage: { input_tokens: 5, output_tokens: 2 } },
+      { type: 'usage', usage: { input_tokens: 99, output_tokens: 2 } },
+    ];
+    const analytics = scanRunEventsForPerRequestUsageAnalytics(asRunEvents(events));
+    expect(analytics.reconciles_aggregate).toBe(false);
   });
 });

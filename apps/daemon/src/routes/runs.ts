@@ -148,6 +148,7 @@ import {
   agentProviderIdForRunAnalytics,
   hasExplicitRequestedModelForAnalytics,
   runtimeTypeForRunAnalytics,
+  scanRunEventsForPerRequestUsageAnalytics,
   scanRunEventsForUsageAnalytics,
   summarizeRunTimingAnalytics,
   summarizeToolAnalytics,

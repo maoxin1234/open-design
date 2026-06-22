@@ -164,6 +164,111 @@ export interface RunToolAnalyticsSummary {
   tool_names_csv: string;
 }
 
+/** One model request's token usage inside a run, keyed by the provider
+ *  request id (`message.id`). Surfaced from the `request_usage` events the
+ *  claude-stream-json parser emits per assistant message (#4610). */
+export interface PerRequestUsageRecord {
+  request_id: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
+/** Run-level rollup of the per-request usage records, plus the reconciliation
+ *  invariant from #4610: the per-request token sum must match the aggregate
+ *  `result.usage`. `reconciles_aggregate` is null when there is no aggregate
+ *  usage to compare against (so callers can tell "unknown" from "mismatch"). */
+export interface PerRequestUsageAnalytics {
+  records: PerRequestUsageRecord[];
+  request_count: number;
+  input_tokens_sum?: number;
+  output_tokens_sum?: number;
+  cache_creation_input_tokens_sum?: number;
+  cache_read_input_tokens_sum?: number;
+  reconciles_aggregate: boolean | null;
+}
+
+const PER_REQUEST_TOKEN_KEYS = [
+  'input_tokens',
+  'output_tokens',
+  'cache_creation_input_tokens',
+  'cache_read_input_tokens',
+] as const;
+
+/** Collect the per-request usage records emitted by the claude-stream-json
+ *  parser and check the reconciliation invariant against the run-level
+ *  aggregate (`result.usage`). Pure and order-preserving so the Langfuse
+ *  per-request export and the PostHog `run_finished` coverage properties both
+ *  read the same source. */
+export function scanRunEventsForPerRequestUsageAnalytics(
+  events: RunEventForAnalyticsObservability[],
+): PerRequestUsageAnalytics {
+  const records: PerRequestUsageRecord[] = [];
+  const sums: Record<(typeof PER_REQUEST_TOKEN_KEYS)[number], number> = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+  const seen: Record<(typeof PER_REQUEST_TOKEN_KEYS)[number], boolean> = {
+    input_tokens: false,
+    output_tokens: false,
+    cache_creation_input_tokens: false,
+    cache_read_input_tokens: false,
+  };
+  let aggregateInput: number | undefined;
+  let aggregateOutput: number | undefined;
+
+  for (const ev of events) {
+    if (ev?.event !== 'agent') continue;
+    const data = ev.data as
+      | { type?: string; requestId?: unknown; usage?: Record<string, unknown> | null }
+      | null
+      | undefined;
+    if (!data) continue;
+    if (data.type === 'request_usage' && typeof data.requestId === 'string') {
+      const usage = data.usage && typeof data.usage === 'object' ? data.usage : {};
+      const record: PerRequestUsageRecord = { request_id: data.requestId };
+      for (const key of PER_REQUEST_TOKEN_KEYS) {
+        const value = readNumber(usage[key]);
+        if (value !== undefined) {
+          record[key] = value;
+          sums[key] += value;
+          seen[key] = true;
+        }
+      }
+      records.push(record);
+    } else if (data.type === 'usage' && data.usage && typeof data.usage === 'object') {
+      // Last aggregate wins — mirrors scanRunEventsForUsageAnalytics taking the
+      // final `result.usage` as the run-level number.
+      aggregateInput = firstNumber(data.usage, ['input_tokens', 'prompt_tokens']);
+      aggregateOutput = firstNumber(data.usage, ['output_tokens', 'completion_tokens']);
+    }
+  }
+
+  let reconciles: boolean | null = null;
+  if (records.length > 0 && (aggregateInput !== undefined || aggregateOutput !== undefined)) {
+    const inputOk = aggregateInput === undefined || sums.input_tokens === aggregateInput;
+    const outputOk = aggregateOutput === undefined || sums.output_tokens === aggregateOutput;
+    reconciles = inputOk && outputOk;
+  }
+
+  return {
+    records,
+    request_count: records.length,
+    ...(seen.input_tokens ? { input_tokens_sum: sums.input_tokens } : {}),
+    ...(seen.output_tokens ? { output_tokens_sum: sums.output_tokens } : {}),
+    ...(seen.cache_creation_input_tokens
+      ? { cache_creation_input_tokens_sum: sums.cache_creation_input_tokens }
+      : {}),
+    ...(seen.cache_read_input_tokens
+      ? { cache_read_input_tokens_sum: sums.cache_read_input_tokens }
+      : {}),
+    reconciles_aggregate: reconciles,
+  };
+}
+
 export interface RunTimingAnalytics {
   queue_duration_ms?: number;
   pre_spawn_duration_ms?: number;
