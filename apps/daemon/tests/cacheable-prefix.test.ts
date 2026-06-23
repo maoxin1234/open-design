@@ -17,6 +17,9 @@ function buildSections({
   daemonSystemPrompt = 'DAEMON',
   runtimeToolPrompt = 'TOOLS',
   systemPrompt = 'SYSTEM (design system / skills / memory)',
+  skillPrompt = '',
+  designSystemPrompt = '',
+  pluginStagePrompt = '',
   formOverride = '',
   researchCommandContract = '',
   runContextPrompt = '',
@@ -29,6 +32,9 @@ function buildSections({
     { kind: 'daemonSystemPrompt', content: daemonSystemPrompt },
     { kind: 'runtimeToolPrompt', content: runtimeToolPrompt },
     { kind: 'clientSystemPrompt', content: systemPrompt },
+    { kind: 'skillPrompt', content: skillPrompt },
+    { kind: 'designSystemPrompt', content: designSystemPrompt },
+    { kind: 'pluginStagePrompt', content: pluginStagePrompt },
     { kind: 'researchCommandContract', content: researchCommandContract },
     { kind: 'runContextPrompt', content: runContextPrompt },
     { kind: 'browserUsePromptGuard', content: browserUsePromptGuard },
@@ -158,6 +164,46 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
       sections: buildSections(),
     });
     expect(withoutOverride.cacheablePrefixContiguous).toBe(true);
+  });
+
+  it('drops the stable sections on a resumed token-skip turn (#4679 review)', () => {
+    // On a resumed turn server.ts gates the stable trio + its skill/design/plugin
+    // subsections with `includeStableInstructions === false`, so those bytes are
+    // NOT resent to the model. The telemetry must mirror that gate: the stable
+    // sections disappear and cacheablePrefixSectionCount drops to 0 — otherwise
+    // cacheablePrefix* would hash a stable prefix that never reached the model.
+    const fresh = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({
+        skillPrompt: 'SKILL',
+        designSystemPrompt: 'DESIGN',
+        pluginStagePrompt: 'PLUGIN',
+      }),
+    });
+    expect(fresh.cacheablePrefixSectionCount).toBeGreaterThan(0);
+
+    // Resume: every stable-gated input is empty (omitted from the sent bytes).
+    const resumed = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({
+        daemonSystemPrompt: '',
+        runtimeToolPrompt: '',
+        systemPrompt: '',
+        skillPrompt: '',
+        designSystemPrompt: '',
+        pluginStagePrompt: '',
+      }),
+    });
+    expect(resumed.cacheablePrefixSectionCount).toBe(0);
+    expect(resumed.cacheablePrefixContiguous).toBe(false);
+    expect(
+      resumed.sections.some(
+        (s) =>
+          s.kind === 'daemonSystemPrompt' ||
+          s.kind === 'runtimeToolPrompt' ||
+          s.kind === 'clientSystemPrompt',
+      ),
+    ).toBe(false);
   });
 
   it('flags non-contiguous stable sections (regression guard)', () => {
