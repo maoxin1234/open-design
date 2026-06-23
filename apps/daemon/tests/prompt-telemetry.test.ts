@@ -426,6 +426,9 @@ describe('prompt telemetry builder', () => {
 
     const flat = buildPromptStackFlatMetadata(telemetry);
     expect(Object.keys(flat).sort()).toEqual([
+      'promptStack_cacheablePrefixContiguous',
+      'promptStack_cacheablePrefixFingerprint',
+      'promptStack_cacheablePrefixSectionCount',
       'promptStack_promptFingerprint',
       'promptStack_redactedContentBudgetBytes',
       'promptStack_redactedContentBytes',
