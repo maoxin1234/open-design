@@ -97,6 +97,25 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
     );
   });
 
+  it('flags a volatile preamble ahead of the stable block (#4679 review)', () => {
+    // A question-form FORM_ANSWERED_*_OVERRIDE is prepended before the stable
+    // trio. The stable sections are still consecutive among themselves, but the
+    // request no longer *starts* with them, so the provider cannot reuse the
+    // prefix cache — the signal must report not-cacheable, not a healthy hit.
+    const withOverride = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({ formOverride: 'FORM_ANSWERED_TASK_TYPE_OVERRIDE' }),
+    });
+    expect(withOverride.cacheablePrefixContiguous).toBe(false);
+
+    // The same turn without the override leads with the stable trio → cacheable.
+    const withoutOverride = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections(),
+    });
+    expect(withoutOverride.cacheablePrefixContiguous).toBe(true);
+  });
+
   it('flags non-contiguous stable sections (regression guard)', () => {
     // A volatile block wedged between two stable sections — the exact bug the
     // reorder fixed (run context splitting the tool prompt from the system

@@ -136,9 +136,12 @@ export interface PromptStackTelemetry {
   /** Number of stable sections folded into `cacheablePrefixFingerprint`. */
   cacheablePrefixSectionCount: number;
   /**
-   * True when the stable sections occupy a single contiguous run in composed
-   * order (no volatile block splits them). A regression that reorders a volatile
-   * block back into the middle of the stable trio flips this to false.
+   * True only when the stable sections form the actual prefix-cacheable run:
+   * they start at the first present section (no volatile preamble such as a
+   * question-form `formOverride` ahead of them) and occupy a single contiguous
+   * run with no volatile block wedged in. A volatile block reordered into — or
+   * prepended ahead of — the stable trio flips this to false, so those turns
+   * surface as not prefix-cacheable rather than as a false cache hit.
    */
   cacheablePrefixContiguous: boolean;
   rawBytes: number;
@@ -448,24 +451,33 @@ function perSectionLimit(kind: PromptTelemetrySectionKind): number {
 
 /**
  * Derive the cacheable-prefix signal (#4679) from the present sections in
- * composed order. The fingerprint covers only `stable` sections so it stays
- * byte-identical when volatile inputs change; `contiguous` is false when a
- * volatile section is interleaved between two stable ones (the regression the
- * reorder fixed: a volatile block splitting the stable trio).
+ * composed order. Absent sections contribute no bytes to the request, so they
+ * are filtered out before reasoning about order. The fingerprint covers only
+ * `stable` sections so it stays byte-identical when volatile inputs change.
+ *
+ * `contiguous` is the actual prefix-cacheable signal: provider prompt caching
+ * only reuses a byte-identical run from the very start of the request, so the
+ * stable sections must (a) start at the first present section — no volatile
+ * preamble such as a question-form `formOverride` may precede them — and (b)
+ * form a single unbroken run (no volatile block wedged into the stable trio).
+ * Either a leading volatile section or an interleaved one flips it to false so
+ * those turns surface as not prefix-cacheable instead of a false cache hit.
  */
 function computeCacheablePrefix(
   sections: PromptTelemetrySection[],
 ): { fingerprint: string; sectionCount: number; contiguous: boolean } {
+  const present = sections.filter((section) => section.present);
   const stable: PromptTelemetrySection[] = [];
   const stablePositions: number[] = [];
-  sections.forEach((section, position) => {
+  present.forEach((section, position) => {
     if (classifyPromptSectionCacheClass(section.kind) === 'stable') {
       stable.push(section);
       stablePositions.push(position);
     }
   });
   const contiguous =
-    stablePositions.length === 0 ||
+    stablePositions.length > 0 &&
+    stablePositions[0] === 0 &&
     stablePositions[stablePositions.length - 1]! - stablePositions[0]! ===
       stablePositions.length - 1;
   const fingerprintSource = stable.map((section) => ({
