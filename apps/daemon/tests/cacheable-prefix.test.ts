@@ -20,6 +20,7 @@ function buildSections({
   formOverride = '',
   researchCommandContract = '',
   runContextPrompt = '',
+  browserUsePromptGuard = '',
   titleGenerationPrompt = '',
   userRequest = 'do the thing',
 }: Partial<Record<string, string>> = {}): PromptTelemetryInputSection[] {
@@ -30,6 +31,7 @@ function buildSections({
     { kind: 'clientSystemPrompt', content: systemPrompt },
     { kind: 'researchCommandContract', content: researchCommandContract },
     { kind: 'runContextPrompt', content: runContextPrompt },
+    { kind: 'browserUsePromptGuard', content: browserUsePromptGuard },
     { kind: 'titleGenerationPrompt', content: titleGenerationPrompt },
     { kind: 'userRequest', content: userRequest },
   ];
@@ -95,6 +97,48 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
     expect(stableChanged.cacheablePrefixFingerprint).not.toBe(
       base.cacheablePrefixFingerprint,
     );
+  });
+
+  it('fingerprints volatile split sections by their redacted text (#4679 review)', () => {
+    // browserUsePromptGuard and titleGenerationPrompt are emitted as their own
+    // sections. They are content-bearing, so mutating just one of them must move
+    // the section fingerprint and the whole-stack fingerprint — otherwise the
+    // metadata-only fallback collapses every non-empty string to one fingerprint
+    // and the telemetry silently misses the byte change.
+    const base = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({
+        browserUsePromptGuard: 'do not click suspicious links',
+        titleGenerationPrompt: 'emit a concise title',
+      }),
+    });
+    const guardChanged = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({
+        browserUsePromptGuard: 'a completely different browser-use guard body',
+        titleGenerationPrompt: 'emit a concise title',
+      }),
+    });
+    const titleChanged = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({
+        browserUsePromptGuard: 'do not click suspicious links',
+        titleGenerationPrompt: 'produce a totally different title instruction',
+      }),
+    });
+
+    const guardFp = (t: typeof base) =>
+      t.sections.find((s) => s.kind === 'browserUsePromptGuard')?.fingerprint;
+    const titleFp = (t: typeof base) =>
+      t.sections.find((s) => s.kind === 'titleGenerationPrompt')?.fingerprint;
+
+    expect(guardFp(guardChanged)).not.toBe(guardFp(base));
+    expect(titleFp(guardChanged)).toBe(titleFp(base));
+    expect(guardChanged.stackFingerprint).not.toBe(base.stackFingerprint);
+
+    expect(titleFp(titleChanged)).not.toBe(titleFp(base));
+    expect(guardFp(titleChanged)).toBe(guardFp(base));
+    expect(titleChanged.stackFingerprint).not.toBe(base.stackFingerprint);
   });
 
   it('flags a volatile preamble ahead of the stable block (#4679 review)', () => {

@@ -231,6 +231,8 @@ const REDACTED_CONTENT_KINDS = new Set<PromptTelemetrySectionKind>([
   'runtimeToolPrompt',
   'researchCommandContract',
   'runContextPrompt',
+  'browserUsePromptGuard',
+  'titleGenerationPrompt',
   'clientSystemPrompt',
   'echoGuard',
   'userRequest',
@@ -251,6 +253,8 @@ const SECTION_PRIORITY = new Map<PromptTelemetrySectionKind, number>([
   ['odNextExactFinalText', 1],
   ['researchCommandContract', 6],
   ['runContextPrompt', 7],
+  ['browserUsePromptGuard', 8],
+  ['titleGenerationPrompt', 8],
   ['echoGuard', 8],
   ['userRequest', 9],
 ]);
