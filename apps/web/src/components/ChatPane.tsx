@@ -2948,6 +2948,17 @@ export function ChatPane({
                               {t('chat.antigravityError.launchSwitchModelCta')}
                             </button>
                           ) : runFailureUi.primaryAction === 'switch-model' ? (
+                            // model_unavailable: steer the user to pick a
+                            // different model instead of retrying the same
+                            // failing one (the PR's whole point). Opens the
+                            // model picker (Settings → execution). Retry stays
+                            // SECONDARY below via secondaryRetry. For non-AMR
+                            // agents the AMR promotion card (showSwitchCard)
+                            // also renders below as the one-click "switch to
+                            // AMR" path; this button is the general escape for
+                            // every switch-model case, including AMR
+                            // self-switch where no promotion card renders and
+                            // the user would otherwise see only Retry.
                             <button
                               type="button"
                               className="chat-error-action"
@@ -3030,14 +3041,13 @@ export function ChatPane({
                             </button>
                           ) : null}
                           {/*
-                            'switch-model' and 'reduce-context' (#3408 §5) carry
-                            no bespoke primary button here: switching models is
-                            offered through the AMR promotion card below
-                            (showSwitchCard) and reducing context is user-side
-                            guidance. Both set secondaryRetry, so the Retry
-                            button below is their recovery action, and their
-                            distinct titleKey (modelUnavailable / promptTooLarge)
-                            names the failure type on the card.
+                            'reduce-context' (#3408 §5) carries no bespoke
+                            primary button here: reducing context is user-side
+                            guidance. It sets secondaryRetry, so the Retry
+                            button below is its recovery action, and its
+                            distinct titleKey (promptTooLarge) names the failure
+                            type on the card. ('switch-model' renders its own
+                            model-picker CTA above; Retry stays secondary.)
                           */}
                           {canResumeFailedRun ? (
                             // Resumable failure: continue the agent's existing
