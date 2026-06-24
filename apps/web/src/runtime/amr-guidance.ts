@@ -7,6 +7,10 @@ import {
   isModelWindowLimitFailure,
   readMembershipConcurrencyResetAt,
   readModelWindowResetAt,
+  type RunFailureCategory,
+  type RunFailureDetail,
+  type TrackingRunFailureCategory,
+  type TrackingRunFailureUserAction,
 } from '@open-design/contracts';
 
 // AMR model-gateway console (account, balance, top-up, plans).
@@ -161,11 +165,21 @@ const PROMOTE_AMR_CODES = new Set<string>([
 // user has a Retry button after the external step completes (OAuth /
 // switching models happens out-of-band; we can't auto-retry from the
 // daemon side).
+//   - switch-model:                non-AMR model_unavailable / quota — open the
+//                                  model picker and pick another model. Pairs
+//                                  with the AMR promotion card (switching to AMR
+//                                  is the steadiest "other model").
+//   - reduce-context:              prompt_too_large / context overflow — the
+//                                  context sent is too big; trim selected
+//                                  context (or switch to a stdin-capable
+//                                  adapter) before retrying.
 export type RunFailurePrimaryAction =
   | 'retry'
   | 'authorize'
   | 'recharge'
   | 'upgrade'
+  | 'switch-model'
+  | 'reduce-context'
   | 'launch-terminal-auth'
   | 'launch-terminal-switch-model'
   // No self-contained recovery button. Used when retrying is futile (e.g. a
@@ -495,7 +509,167 @@ const AGENT_AGNOSTIC_DETAIL_FAILURE_UI: Record<string, RunFailureUi> = {
 //     cli-missing) → named type + fix, overriding a too-coarse code
 //   - non-AMR agent, model/auth/quota error → plain retry + promotion card
 //   - non-AMR agent, generic failure        → plain retry
+export type RunFailureClassificationSignal = {
+  failureCategory?: RunFailureCategory | string | null;
+  failureDetail?: RunFailureDetail | string | null;
+  userAction?: TrackingRunFailureUserAction | null;
+  user_action?: TrackingRunFailureUserAction | null;
+};
+
 export function resolveRunFailureUi(
+  code: string | null | undefined,
+  detailOrAgentId?: string | null | undefined,
+  agentIdOrClassification?: string | null | RunFailureClassificationSignal,
+  rawMessage?: string | null,
+  options?: RunFailureClassificationSignal | null,
+): RunFailureUi {
+  let detail: string | null | undefined;
+  let agentId: string | null | undefined;
+  let rawMsg: string | null | undefined;
+  let classification: RunFailureClassificationSignal | null | undefined;
+
+  if (arguments.length <= 2) {
+    detail = null;
+    agentId = detailOrAgentId;
+    rawMsg = null;
+    classification = undefined;
+  } else if (
+    typeof agentIdOrClassification === 'object' &&
+    agentIdOrClassification !== null
+  ) {
+    // 3-arg form: (code, agentId, classification)
+    detail = null;
+    agentId = detailOrAgentId;
+    rawMsg = rawMessage;
+    classification = agentIdOrClassification;
+  } else {
+    // 3/4/5-arg form: (code, detail, agentId, rawMessage?, options?)
+    detail = detailOrAgentId;
+    agentId = typeof agentIdOrClassification === 'string' ? agentIdOrClassification : null;
+    rawMsg = rawMessage;
+    classification = options;
+  }
+
+  const userAction = classification?.userAction ?? classification?.user_action;
+  if (userAction && userAction !== 'none') {
+    return uiFromUserAction(userAction, agentId, code);
+  }
+  return uiFromErrorCode(code, detail, agentId, rawMsg);
+}
+
+// CTA driven by the daemon-decided `user_action`. Agent-aware where the same
+// action has an agent-specific shape (AMR sign-in pill vs Antigravity's
+// terminal-only OAuth/model-switch). Stays within the existing primary-action
+// vocabulary plus the new `switch-model` / `reduce-context` entries.
+function uiFromUserAction(
+  userAction: Exclude<TrackingRunFailureUserAction, 'none'>,
+  agentId: string | null | undefined,
+  code: string | null | undefined,
+): RunFailureUi {
+  switch (userAction) {
+    case 'login': {
+      if (agentId === 'amr') {
+        return {
+          primaryAction: 'authorize',
+          titleKey: 'chat.runError.title.signInRequired',
+          messageKey: 'chat.runError.signInMessage.amr',
+          secondaryRetry: false,
+          showSwitchCard: false,
+        };
+      }
+      if (agentId === 'antigravity') {
+        return {
+          primaryAction: 'launch-terminal-auth',
+          titleKey: 'chat.runError.title.signInRequired',
+          messageKey: null,
+          secondaryRetry: true,
+          showSwitchCard: false,
+        };
+      }
+      // Non-AMR, non-antigravity: their login lives in the user's own terminal,
+      // so offer Retry (re-run after they log in locally) + promote AMR.
+      return {
+        primaryAction: 'retry',
+        titleKey: 'chat.runError.title.signInRequired',
+        messageKey: 'chat.runError.signInMessage.other',
+        secondaryRetry: false,
+        showSwitchCard: true,
+      };
+    }
+    case 'recharge':
+      return {
+        primaryAction: 'recharge',
+        titleKey: 'chat.runError.title.balance',
+        messageKey: 'chat.amrError.balanceMessage',
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    case 'switch_model': {
+      // Antigravity has no `--model` flag (upstream #35): switching means
+      // opening agy's TUI, same terminal-launch handler as auth.
+      if (agentId === 'antigravity') {
+        return {
+          primaryAction: 'launch-terminal-switch-model',
+          titleKey: 'chat.runError.title.rateLimited',
+          messageKey: null,
+          secondaryRetry: true,
+          showSwitchCard: false,
+        };
+      }
+      return {
+        primaryAction: 'switch-model',
+        titleKey: 'chat.runError.title.modelUnavailable',
+        messageKey: null,
+        secondaryRetry: true,
+        // AMR is the steadiest "other model" — promote it alongside.
+        showSwitchCard: agentId !== 'amr',
+      };
+    }
+    case 'reduce_context':
+      return {
+        primaryAction: 'reduce-context',
+        titleKey: 'chat.runError.title.promptTooLarge',
+        messageKey: null,
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    case 'install_cli':
+    case 'fix_config':
+      // No dedicated button for these in the card vocabulary; the raw daemon
+      // guidance text explains the fix and Retry re-runs once it's resolved.
+      return {
+        primaryAction: 'retry',
+        titleKey: 'chat.runError.title.generic',
+        messageKey: null,
+        secondaryRetry: false,
+        showSwitchCard: false,
+      };
+    case 'retry':
+    default: {
+      // A mid-response connection drop keeps its localized copy even when the
+      // daemon classifies the action as a plain retry.
+      if (code === 'AGENT_CONNECTION_DROPPED') {
+        return {
+          primaryAction: 'retry',
+          titleKey: 'chat.runError.title.connectionDropped',
+          messageKey: 'chat.connectionDropped',
+          secondaryRetry: false,
+          showSwitchCard: false,
+        };
+      }
+      const promote = typeof code === 'string' && PROMOTE_AMR_CODES.has(code);
+      return {
+        primaryAction: 'retry',
+        titleKey: 'chat.runError.title.generic',
+        messageKey: null,
+        secondaryRetry: false,
+        showSwitchCard: agentId !== 'amr' && promote,
+      };
+    }
+  }
+}
+
+function uiFromErrorCode(
   code: string | null | undefined,
   detail: string | null | undefined,
   agentId: string | null | undefined,

@@ -1941,7 +1941,6 @@ export function __forTestFilesystemEmptyAnswerFallbackText(fileNames) {
   return filesystemEmptyAnswerFallbackText(fileNames);
 }
 
-
 export function shouldReportRunCompletedFromMessage(saved, body = {}) {
   return Boolean(
     saved &&
@@ -11774,6 +11773,35 @@ export async function startServer({
           run.plainArtifactStdout =
             ((run.plainArtifactStdout ?? '') + data.chunk).slice(0, PLAIN_ARTIFACT_STDOUT_CAP);
         }
+      // Stamp the canonical failure classification (#3408 §5) onto every error
+      // event at this single choke point, so both the live SSE payload and the
+      // persisted status:error event carry the daemon-decided `user_action` the
+      // web error card uses to pick its CTA. Reuse the same `classifyRunFailure`
+      // the run finalizer/analytics use, so the two layers can't drift.
+      if (
+        event === 'error' &&
+        data &&
+        typeof data.error === 'object' &&
+        data.error &&
+        data.error.user_action === undefined
+      ) {
+        const errorCode =
+          typeof data.error.code === 'string' ? data.error.code : undefined;
+        const errorMessage =
+          typeof data.error.message === 'string'
+            ? data.error.message
+            : typeof data.message === 'string'
+              ? data.message
+              : '';
+        const failure = classifyRunFailure({
+          result: 'failed',
+          status: { status: 'failed', error: errorMessage, errorCode },
+          ...(errorCode ? { errorCode } : {}),
+          agentId: run.agentId,
+          events: run.events,
+        });
+        data.error.failure_category = failure.failure_category;
+        data.error.user_action = failure.user_action;
       }
       persistRunEventToAssistantMessage(db, run, event, data);
       design.runs.emit(run, event, data);

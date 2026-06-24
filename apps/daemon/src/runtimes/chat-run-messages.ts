@@ -354,11 +354,21 @@ export function runSseEventToPersistedAgentEvent(
       : typeof record.message === 'string'
         ? record.message
         : '';
+    const failureCategory =
+      typeof error.failure_category === 'string'
+        ? (error.failure_category as TrackingRunFailureCategory)
+        : undefined;
+    const userAction =
+      typeof error.user_action === 'string'
+        ? (error.user_action as TrackingRunFailureUserAction)
+        : undefined;
     return {
       kind: 'status',
       label: 'error',
       ...(message ? { detail: message } : {}),
       ...(typeof error.code === 'string' ? { code: error.code } : {}),
+      ...(failureCategory ? { failure_category: failureCategory } : {}),
+      ...(userAction ? { user_action: userAction } : {}),
     };
   }
   if (event !== 'agent') return null;

@@ -25,6 +25,7 @@ import type {
   TrackingRunCancelOrigin,
   TrackingRunFailureCategory,
   TrackingRunFailureDetail,
+  TrackingRunFailureUserAction,
   TrackingRunRecoveryActionType,
   TrackingRunTerminalTrigger,
 } from '../analytics/events.js';
@@ -819,6 +820,13 @@ export type PersistedAgentEvent =
   // `failureCategory` / `failureDetail` carry the daemon's finer classification
   // for the same failure, so the error card can name a specific type + fix even
   // when many causes share one `code` (e.g. hard_quota vs a transient 429).
+  //
+  // `failure_category` / `user_action` carry the daemon's canonical failure
+  // classification (#3408 §5) for `label: 'error'` events. `user_action` is the
+  // authoritative signal the error card uses to pick its CTA — the web trusts
+  // the daemon's decision rather than re-deriving it from `code`. Both are
+  // optional: older daemons and partially-classified runs omit them, and the
+  // client falls back to the `code` map.
   | {
       kind: 'status';
       label: string;
@@ -826,6 +834,8 @@ export type PersistedAgentEvent =
       code?: string;
       failureCategory?: RunFailureCategory;
       failureDetail?: RunFailureDetail;
+      failure_category?: TrackingRunFailureCategory;
+      user_action?: TrackingRunFailureUserAction;
     }
   | { kind: 'text'; text: string }
   | { kind: 'conversation_title'; title: string }

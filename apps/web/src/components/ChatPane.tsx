@@ -1378,6 +1378,16 @@ export function ChatPane({
         // gateway reported (the instant a model window reopens) can read it back
         // out. Same string the card renders under 「查看详情」.
         failedRunErrorEvent?.detail,
+        {
+          failureCategory:
+            failedRunErrorEvent?.kind === 'status'
+              ? failedRunErrorEvent.failure_category ?? failedRunErrorEvent.failureCategory ?? null
+              : null,
+          userAction:
+            failedRunErrorEvent?.kind === 'status'
+              ? failedRunErrorEvent.user_action ?? null
+              : null,
+        },
       )
     : null;
   const hasInlineAmrAuthorizeFailure = Boolean(
@@ -2937,6 +2947,14 @@ export function ChatPane({
                             >
                               {t('chat.antigravityError.launchSwitchModelCta')}
                             </button>
+                          ) : runFailureUi.primaryAction === 'switch-model' ? (
+                            <button
+                              type="button"
+                              className="chat-error-action"
+                              onClick={() => onOpenSettings?.('execution')}
+                            >
+                              {t('chat.runError.switchModelCta')}
+                            </button>
                           ) : runFailureUi.primaryAction === 'recharge' ? (
                             <button
                               type="button"
@@ -3011,6 +3029,16 @@ export function ChatPane({
                               {t('chat.amrBalanceGate.plansCta')}
                             </button>
                           ) : null}
+                          {/*
+                            'switch-model' and 'reduce-context' (#3408 §5) carry
+                            no bespoke primary button here: switching models is
+                            offered through the AMR promotion card below
+                            (showSwitchCard) and reducing context is user-side
+                            guidance. Both set secondaryRetry, so the Retry
+                            button below is their recovery action, and their
+                            distinct titleKey (modelUnavailable / promptTooLarge)
+                            names the failure type on the card.
+                          */}
                           {canResumeFailedRun ? (
                             // Resumable failure: continue the agent's existing
                             // CLI session instead of restarting from scratch, so

@@ -469,9 +469,15 @@ function daemonSseError(data: SseErrorPayload): Error {
   const error = new Error(daemonSseErrorMessage(data)) as Error & {
     code?: string;
     details?: unknown;
+    failureCategory?: string;
+    userAction?: string;
   };
   if (data.error?.code) error.code = data.error.code;
   if (data.error?.details !== undefined) error.details = data.error.details;
+  // Carry the daemon's canonical failure classification (#3408 §5) so the chat
+  // error card can drive its CTA off `user_action` (see resolveRunFailureUi).
+  if (data.error?.failure_category) error.failureCategory = data.error.failure_category;
+  if (data.error?.user_action) error.userAction = data.error.user_action;
   return error;
 }
 

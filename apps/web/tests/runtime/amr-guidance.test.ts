@@ -615,3 +615,101 @@ describe('resolveRunFailureUi', () => {
     }
   });
 });
+
+// #3408 §5: the daemon's canonical `user_action` is the authoritative CTA
+// signal. The resolver must prefer it over re-deriving from the raw error code,
+// and fall back to the code map only when it is absent or `none`. The
+// `user_action` value list mirrors the daemon classifier's
+// `TrackingRunFailureUserAction` union so the two layers can't drift.
+describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
+  it('maps every user_action to the expected primary action', () => {
+    // [userAction, agentId, expected primaryAction]
+    const cases: Array<[string, string | null, string]> = [
+      ['retry', 'claude', 'retry'],
+      ['login', 'amr', 'authorize'],
+      ['login', 'antigravity', 'launch-terminal-auth'],
+      ['login', 'claude', 'retry'],
+      ['recharge', 'amr', 'recharge'],
+      ['switch_model', 'claude', 'switch-model'],
+      ['switch_model', 'antigravity', 'launch-terminal-switch-model'],
+      ['switch_model', 'amr', 'switch-model'],
+      ['reduce_context', 'claude', 'reduce-context'],
+      ['install_cli', 'claude', 'retry'],
+      ['fix_config', 'claude', 'retry'],
+    ];
+    for (const [userAction, agentId, expected] of cases) {
+      const ui = resolveRunFailureUi('AGENT_EXECUTION_FAILED', agentId, {
+        userAction: userAction as never,
+      });
+      expect(ui.primaryAction).toBe(expected);
+    }
+  });
+
+  it('promotes the AMR switch card for non-AMR switch_model, not for AMR itself', () => {
+    expect(
+      resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'claude', {
+        userAction: 'switch_model',
+      }).showSwitchCard,
+    ).toBe(true);
+    expect(
+      resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'amr', {
+        userAction: 'switch_model',
+      }).showSwitchCard,
+    ).toBe(false);
+  });
+
+  it('names the failure type for the new context/model classes', () => {
+    expect(
+      resolveRunFailureUi(null, 'claude', { userAction: 'reduce_context' })
+        .titleKey,
+    ).toBe('chat.runError.title.promptTooLarge');
+    expect(
+      resolveRunFailureUi(null, 'claude', { userAction: 'switch_model' })
+        .titleKey,
+    ).toBe('chat.runError.title.modelUnavailable');
+  });
+
+  it('lets a classified user_action beat the raw-code map', () => {
+    // The bare code would resolve to a plain generic retry with no card; the
+    // daemon-decided user_action takes precedence.
+    const byCode = resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'claude');
+    expect(byCode.primaryAction).toBe('retry');
+    expect(byCode.showSwitchCard).toBe(false);
+
+    const byAction = resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'claude', {
+      userAction: 'switch_model',
+    });
+    expect(byAction.primaryAction).toBe('switch-model');
+    expect(byAction.showSwitchCard).toBe(true);
+  });
+
+  it('falls through to the code map when no user_action is supplied', () => {
+    // An unclassified run (older daemon) must resolve exactly like the 2-arg
+    // form — here the AMR balance code still yields the recharge CTA.
+    const withEmptyClassification = resolveRunFailureUi(
+      'AMR_INSUFFICIENT_BALANCE',
+      'amr',
+      { failureCategory: null, userAction: null },
+    );
+    expect(withEmptyClassification).toEqual(
+      resolveRunFailureUi('AMR_INSUFFICIENT_BALANCE', 'amr'),
+    );
+    expect(withEmptyClassification.primaryAction).toBe('recharge');
+  });
+
+  it('falls through on the partial-classification edge (category set, user_action none/absent)', () => {
+    // The daemon landed a category but no actionable user_action. The CTA must
+    // still reach the code map rather than rendering a blank action.
+    const noneAction = resolveRunFailureUi('AMR_INSUFFICIENT_BALANCE', 'amr', {
+      failureCategory: 'insufficient_balance',
+      userAction: 'none',
+    });
+    expect(noneAction.primaryAction).toBe('recharge');
+
+    const absentAction = resolveRunFailureUi('RATE_LIMITED', 'claude', {
+      failureCategory: 'rate_limit',
+    });
+    expect(absentAction.primaryAction).toBe('retry');
+    expect(absentAction.showSwitchCard).toBe(true);
+  });
+});
