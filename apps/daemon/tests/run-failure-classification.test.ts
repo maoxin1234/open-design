@@ -314,6 +314,66 @@ describe('classifyRunFailure', () => {
     });
   });
 
+  it('classifies a BYOK proxy model error carried in the upstream `details` body', () => {
+    // The proxy collapses the response to message "Upstream error: 400" and
+    // keeps the provider's body in `details`; the classifier must look inside
+    // it rather than treating the run as an opaque UPSTREAM_UNAVAILABLE.
+    const event: RunEventForFailureClassification = {
+      event: 'error',
+      data: {
+        message: 'Upstream error: 400',
+        error: {
+          code: 'UPSTREAM_UNAVAILABLE',
+          message: 'Upstream error: 400',
+          details: 'The model `gpt-4o` does not exist or you do not have access to it.',
+        },
+      },
+    };
+    expect(
+      classifyRunFailure({
+        result: 'failed',
+        status: { status: 'failed', error: 'Upstream error: 400', errorCode: 'UPSTREAM_UNAVAILABLE' },
+        errorCode: 'UPSTREAM_UNAVAILABLE',
+        agentId: 'openai-api',
+        events: [event],
+      }),
+    ).toMatchObject({
+      failure_category: 'model_unavailable',
+      failure_detail: 'model_not_found',
+      user_action: 'switch_model',
+    });
+  });
+
+  it('classifies a CJK (GLM) model-not-found body inside proxy `details`', () => {
+    // GLM/Zhipu returns "模型不存在，请检查模型代码" for an unknown model — English
+    // -only patterns miss it, so the switch-model guidance never fired for BYOK
+    // CJK providers before. A raw-string `details` body must classify too.
+    const event: RunEventForFailureClassification = {
+      event: 'error',
+      data: {
+        message: 'Upstream error: 400',
+        error: {
+          code: 'UPSTREAM_UNAVAILABLE',
+          message: 'Upstream error: 400',
+          details: '{"error":{"code":"1211","message":"模型不存在，请检查模型代码。"}}',
+        },
+      },
+    };
+    expect(
+      classifyRunFailure({
+        result: 'failed',
+        status: { status: 'failed', error: 'Upstream error: 400', errorCode: 'UPSTREAM_UNAVAILABLE' },
+        errorCode: 'UPSTREAM_UNAVAILABLE',
+        agentId: 'openai-api',
+        events: [event],
+      }),
+    ).toMatchObject({
+      failure_category: 'model_unavailable',
+      failure_detail: 'model_not_found',
+      user_action: 'switch_model',
+    });
+  });
+
   it('recovers rate-limit and session-limit signals from generic error codes', () => {
     expect(
       classify(

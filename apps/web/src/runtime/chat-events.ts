@@ -24,18 +24,24 @@ export function runFailureFieldsFromError(
     failureDetail?: RunFailureDetail | null;
     failure_category?: TrackingRunFailureCategory | null;
     user_action?: TrackingRunFailureUserAction | null;
+    userAction?: string | null;
   } | null;
-  if (!e || (!e.failureCategory && !e.failureDetail && !e.failure_category && !e.user_action)) return undefined;
+  if (!e || (!e.failureCategory && !e.failureDetail && !e.failure_category && !e.user_action && !e.userAction)) return undefined;
   return {
     ...(e.failureCategory ? { failureCategory: e.failureCategory } : {}),
     ...(e.failureDetail ? { failureDetail: e.failureDetail } : {}),
     ...(e.failure_category ? { failure_category: e.failure_category } : {}),
-    ...(e.user_action ? { user_action: e.user_action } : {}),
+    ...(e.user_action
+      ? { user_action: e.user_action }
+      : e.userAction
+        ? { user_action: e.userAction as TrackingRunFailureUserAction }
+        : {}),
   };
 }
 
-export type ErrorStatusClassification = RunFailureClassificationFields;
+export const errorStatusClassificationFromError = runFailureFieldsFromError;
 
+export type ErrorStatusClassification = RunFailureClassificationFields;
 export function appendErrorStatusEvent(
   message: ChatMessage,
   detail: string,

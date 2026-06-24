@@ -11773,6 +11773,7 @@ export async function startServer({
           run.plainArtifactStdout =
             ((run.plainArtifactStdout ?? '') + data.chunk).slice(0, PLAIN_ARTIFACT_STDOUT_CAP);
         }
+      }
       // Stamp the canonical failure classification (#3408 §5) onto every error
       // event at this single choke point, so both the live SSE payload and the
       // persisted status:error event carry the daemon-decided `user_action` the
@@ -11787,12 +11788,36 @@ export async function startServer({
       ) {
         const errorCode =
           typeof data.error.code === 'string' ? data.error.code : undefined;
-        const errorMessage =
+        const baseErrorMessage =
           typeof data.error.message === 'string'
             ? data.error.message
             : typeof data.message === 'string'
               ? data.message
               : '';
+        // The BYOK proxy collapses the upstream response to "Upstream error:
+        // <status>" and keeps the provider's real body in `details`. Fold it
+        // into the classified text so model-unavailable / quota / auth wording
+        // inside it drives the CTA, even before this error event lands in
+        // `run.events`. A string body is the raw response text; an object body
+        // is an SSE error frame whose message-ish fields are what we want.
+        const detailsRaw = data.error.details;
+        const detailsMessage =
+          typeof detailsRaw === 'string'
+            ? detailsRaw
+            : detailsRaw && typeof detailsRaw === 'object'
+              ? [
+                  typeof detailsRaw.message === 'string' ? detailsRaw.message : '',
+                  detailsRaw.error && typeof detailsRaw.error === 'object' &&
+                  typeof detailsRaw.error.message === 'string'
+                    ? detailsRaw.error.message
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join('\n')
+              : '';
+        const errorMessage = [baseErrorMessage, detailsMessage]
+          .filter(Boolean)
+          .join('\n');
         const failure = classifyRunFailure({
           result: 'failed',
           status: { status: 'failed', error: errorMessage, errorCode },
