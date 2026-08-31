@@ -700,6 +700,17 @@ function uiFromUserAction(
         showSwitchCard: agentId !== 'amr' && (baseUi.showSwitchCard || promote),
       };
     }
+    default: {
+      // Protocol hardening: unknown or forward-compatible user_action strings
+      // degrade safely to the base UI rather than breaking.
+      const promote = typeof code === 'string' && PROMOTE_AMR_CODES.has(code);
+      return {
+        ...baseUi,
+        primaryAction: 'retry',
+        secondaryRetry: false,
+        showSwitchCard: agentId !== 'amr' && (baseUi.showSwitchCard || promote),
+      };
+    }
   }
 }
 

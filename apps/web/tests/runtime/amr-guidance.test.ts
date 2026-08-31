@@ -750,4 +750,19 @@ describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
     expect(absentAction.primaryAction).toBe('retry');
     expect(absentAction.showSwitchCard).toBe(true);
   });
+
+  it('handles unknown or forward-compatible user_action strings by falling back to base UI', () => {
+    // A future daemon might introduce a new user_action string that this web build
+    // does not explicitly know. It must degrade gracefully to the base UI rather than throw.
+    const ui = resolveRunFailureUi(
+      'RATE_LIMITED',
+      'claude',
+      {
+        userAction: 'future_unknown_action' as unknown as TrackingRunFailureUserAction,
+      },
+    );
+    expect(ui.primaryAction).toBe('retry');
+    expect(ui.titleKey).toBe('chat.runError.title.rateLimited');
+    expect(ui.showSwitchCard).toBe(true);
+  });
 });
