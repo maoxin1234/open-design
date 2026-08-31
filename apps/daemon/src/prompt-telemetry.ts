@@ -356,7 +356,18 @@ export function buildSafeChildPromptTelemetry(
 function stripRuntimeToolPromptTokens(input: string): string {
   return input
     .split(/\r?\n/)
-    .filter((line) => !line.includes('OD_TOOL_TOKEN'))
+    .map((line) => {
+      if (line.includes('OD_TOOL_TOKEN')) {
+        if (line.includes('is available')) {
+          return '- [OD_TOOL_TOKEN_AVAILABLE]';
+        }
+        if (line.includes('is not available') || line.includes('unavailable')) {
+          return '- [OD_TOOL_TOKEN_UNAVAILABLE]';
+        }
+        return '- [OD_TOOL_TOKEN_REDACTED]';
+      }
+      return line;
+    })
     .join('\n');
 }
 

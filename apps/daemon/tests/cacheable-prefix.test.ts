@@ -105,6 +105,35 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
     );
   });
 
+  it('distinguishes available and unavailable runtime tool prompts while keeping token redacted (#4679 review)', () => {
+    const availablePrompt = [
+      '## Runtime tool environment',
+      '- `OD_TOOL_TOKEN` is available in your environment for this run. Use it only through project wrapper commands; do not print, persist, or override it.',
+    ].join('\n');
+    const unavailablePrompt = [
+      '## Runtime tool environment',
+      '- `OD_TOOL_TOKEN` is not available for this run, so `/api/tools/*` wrapper commands may be unavailable.',
+    ].join('\n');
+
+    const available = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({ runtimeToolPrompt: availablePrompt }),
+    });
+    const unavailable = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({ runtimeToolPrompt: unavailablePrompt }),
+    });
+
+    const availSec = available.sections.find((s) => s.kind === 'runtimeToolPrompt');
+    const unavailSec = unavailable.sections.find((s) => s.kind === 'runtimeToolPrompt');
+
+    expect(availSec?.fingerprint).not.toBe(unavailSec?.fingerprint);
+    expect(available.cacheablePrefixFingerprint).not.toBe(unavailable.cacheablePrefixFingerprint);
+    expect(availSec?.redactedContent).toContain('[OD_TOOL_TOKEN_AVAILABLE]');
+    expect(unavailSec?.redactedContent).toContain('[OD_TOOL_TOKEN_UNAVAILABLE]');
+    expect(availSec?.redactedContent).not.toContain('secret');
+  });
+
   it('fingerprints volatile split sections by their redacted text (#4679 review)', () => {
     // browserUsePromptGuard and titleGenerationPrompt are emitted as their own
     // sections. They are content-bearing, so mutating just one of them must move
