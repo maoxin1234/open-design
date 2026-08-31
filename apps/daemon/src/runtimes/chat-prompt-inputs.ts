@@ -286,13 +286,19 @@ export function composeChatAgentTextPayload({
 
   assertOdNextLegacyTextContributorCoverage(Object.keys(contributors), strategyInputStage);
 
-  const clientInstructionPrompt = [
+  const clientVolatileSystemPrompt = [
     researchCommandContract,
     runContextPrompt,
     connectedExternalMcpReference,
     browserUnavailableGuard,
     titleGenerationDirective,
+  ]
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+  const clientInstructionPrompt = [
     clientSystemPrompt,
+    clientVolatileSystemPrompt,
   ]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
@@ -300,7 +306,8 @@ export function composeChatAgentTextPayload({
   const instructionPrompt = composeLiveInstructionPrompt({
     daemonSystemPrompt,
     runtimeToolPrompt,
-    clientSystemPrompt: clientInstructionPrompt,
+    clientStableSystemPrompt: clientSystemPrompt,
+    clientSystemPrompt: clientVolatileSystemPrompt,
     finalPromptOverride: null,
   });
   const composedPrompt = [
