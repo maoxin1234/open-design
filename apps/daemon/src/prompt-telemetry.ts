@@ -69,6 +69,7 @@ export const PROMPT_SECTION_CACHE_CLASS: Record<
   skillPrompt: 'stable',
   designSystemPrompt: 'stable',
   pluginStagePrompt: 'stable',
+  odNextExactFinalText: 'volatile',
   // Volatile tail: per-turn inputs that must not break the stable prefix.
   formOverride: 'volatile',
   researchCommandContract: 'volatile',
