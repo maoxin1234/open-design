@@ -58,6 +58,7 @@ import type {
   ChatSessionMode,
   RunContextSelection,
   WorkspaceContextItem,
+  TrackingRunFailureUserAction,
 } from '@open-design/contracts';
 import type {
   TrackingProjectKind,
@@ -1381,11 +1382,17 @@ export function ChatPane({
         {
           failureCategory:
             failedRunErrorEvent?.kind === 'status'
-              ? failedRunErrorEvent.failure_category ?? failedRunErrorEvent.failureCategory ?? null
+              ? (((failedRunErrorEvent as unknown as Record<string, unknown>).failure_category
+                ?? (failedRunErrorEvent as unknown as Record<string, unknown>).failureCategory) as
+                | string
+                | undefined) ?? null
               : null,
           userAction:
             failedRunErrorEvent?.kind === 'status'
-              ? failedRunErrorEvent.user_action ?? null
+              ? (((failedRunErrorEvent as unknown as Record<string, unknown>).user_action
+                ?? (failedRunErrorEvent as unknown as Record<string, unknown>).userAction) as
+                | TrackingRunFailureUserAction
+                | undefined) ?? null
               : null,
         },
       )

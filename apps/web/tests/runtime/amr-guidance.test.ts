@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { TrackingRunFailureUserAction } from '@open-design/contracts';
 import {
   DEFAULT_AMR_RECHARGE_URL,
   OPEN_DESIGN_PRICING_URL,
@@ -624,12 +625,17 @@ describe('resolveRunFailureUi', () => {
 describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
   it('maps every user_action to the expected primary action', () => {
     // [userAction, agentId, expected primaryAction]
-    const cases: Array<[string, string | null, string]> = [
+    const cases: Array<[
+      Exclude<TrackingRunFailureUserAction, 'none'>,
+      string | null,
+      string,
+    ]> = [
       ['retry', 'claude', 'retry'],
       ['login', 'amr', 'authorize'],
       ['login', 'antigravity', 'launch-terminal-auth'],
       ['login', 'claude', 'retry'],
       ['recharge', 'amr', 'recharge'],
+      ['upgrade', 'amr', 'upgrade'],
       ['switch_model', 'claude', 'switch-model'],
       ['switch_model', 'antigravity', 'launch-terminal-switch-model'],
       ['switch_model', 'amr', 'switch-model'],
@@ -639,10 +645,42 @@ describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
     ];
     for (const [userAction, agentId, expected] of cases) {
       const ui = resolveRunFailureUi('AGENT_EXECUTION_FAILED', agentId, {
-        userAction: userAction as never,
+        userAction,
       });
       expect(ui.primaryAction).toBe(expected);
     }
+  });
+
+  it('preserves localized error guidance, messageKey, and details when overlaying user_action', () => {
+    // model_window_limit carries a custom title, localized message with retryAt, and secondaryRetry
+    const ui = resolveRunFailureUi(
+      'RATE_LIMITED',
+      'model_window_limit',
+      'claude',
+      'You have reached the 5-hour usage limit for Kimi K2.6. Try again after 2026-08-12T06:34:47Z.',
+      {
+        failureCategory: 'rate_limit',
+        failureDetail: 'model_window_limit',
+        userAction: 'switch_model',
+      },
+    );
+    expect(ui.titleKey).toBe('chat.runError.title.modelWindowLimit');
+    expect(ui.messageKey).toBe('chat.runError.modelWindowLimitMessage');
+    expect(ui.messageVars?.retryAt).toBe('2026-08-12T06:34:47Z');
+    expect(ui.primaryAction).toBe('switch-model');
+    expect(ui.secondaryRetry).toBe(true);
+
+    // AMR_TIER_UPGRADE_REQUIRED preserves plans upgrade action
+    const upgradeUi = resolveRunFailureUi(
+      'AMR_TIER_UPGRADE_REQUIRED',
+      'amr',
+      {
+        failureCategory: 'tier_entitlement_required',
+        userAction: 'upgrade',
+      },
+    );
+    expect(upgradeUi.primaryAction).toBe('upgrade');
+    expect(upgradeUi.titleKey).toBe('chat.amrBalanceGate.title');
   });
 
   it('promotes the AMR switch card for non-AMR switch_model, not for AMR itself', () => {

@@ -550,18 +550,19 @@ export function resolveRunFailureUi(
     classification = options;
   }
 
+  const baseUi = uiFromErrorCode(code, detail, agentId, rawMsg);
   const userAction = classification?.userAction ?? classification?.user_action;
-  if (userAction && userAction !== 'none') {
-    return uiFromUserAction(userAction, agentId, code);
+  if (!userAction || userAction === 'none') {
+    return baseUi;
   }
-  return uiFromErrorCode(code, detail, agentId, rawMsg);
+  return uiFromUserAction(baseUi, userAction, agentId, code);
 }
 
-// CTA driven by the daemon-decided `user_action`. Agent-aware where the same
-// action has an agent-specific shape (AMR sign-in pill vs Antigravity's
-// terminal-only OAuth/model-switch). Stays within the existing primary-action
-// vocabulary plus the new `switch-model` / `reduce-context` entries.
+// CTA driven by the daemon-decided `user_action`. Overlays the action-specific
+// primary recovery controls onto the base UI resolved from classification/code
+// so localized guidance and failure details are preserved (#4734).
 function uiFromUserAction(
+  baseUi: RunFailureUi,
   userAction: Exclude<TrackingRunFailureUserAction, 'none'>,
   agentId: string | null | undefined,
   code: string | null | undefined,
@@ -570,18 +571,25 @@ function uiFromUserAction(
     case 'login': {
       if (agentId === 'amr') {
         return {
+          ...baseUi,
           primaryAction: 'authorize',
-          titleKey: 'chat.runError.title.signInRequired',
-          messageKey: 'chat.runError.signInMessage.amr',
+          titleKey:
+            baseUi.titleKey === 'chat.runError.title.generic'
+              ? 'chat.runError.title.signInRequired'
+              : baseUi.titleKey,
+          messageKey: baseUi.messageKey ?? 'chat.runError.signInMessage.amr',
           secondaryRetry: false,
           showSwitchCard: false,
         };
       }
       if (agentId === 'antigravity') {
         return {
+          ...baseUi,
           primaryAction: 'launch-terminal-auth',
-          titleKey: 'chat.runError.title.signInRequired',
-          messageKey: null,
+          titleKey:
+            baseUi.titleKey === 'chat.runError.title.generic'
+              ? 'chat.runError.title.signInRequired'
+              : baseUi.titleKey,
           secondaryRetry: true,
           showSwitchCard: false,
         };
@@ -589,18 +597,37 @@ function uiFromUserAction(
       // Non-AMR, non-antigravity: their login lives in the user's own terminal,
       // so offer Retry (re-run after they log in locally) + promote AMR.
       return {
+        ...baseUi,
         primaryAction: 'retry',
-        titleKey: 'chat.runError.title.signInRequired',
-        messageKey: 'chat.runError.signInMessage.other',
+        titleKey:
+          baseUi.titleKey === 'chat.runError.title.generic'
+            ? 'chat.runError.title.signInRequired'
+            : baseUi.titleKey,
+        messageKey: baseUi.messageKey ?? 'chat.runError.signInMessage.other',
         secondaryRetry: false,
         showSwitchCard: true,
       };
     }
     case 'recharge':
       return {
+        ...baseUi,
         primaryAction: 'recharge',
-        titleKey: 'chat.runError.title.balance',
-        messageKey: 'chat.amrError.balanceMessage',
+        titleKey:
+          baseUi.titleKey === 'chat.runError.title.generic'
+            ? 'chat.runError.title.balance'
+            : baseUi.titleKey,
+        messageKey: baseUi.messageKey ?? 'chat.amrError.balanceMessage',
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    case 'upgrade':
+      return {
+        ...baseUi,
+        primaryAction: 'upgrade',
+        titleKey:
+          baseUi.titleKey === 'chat.runError.title.generic'
+            ? 'chat.amrBalanceGate.title'
+            : baseUi.titleKey,
         secondaryRetry: true,
         showSwitchCard: false,
       };
@@ -609,17 +636,23 @@ function uiFromUserAction(
       // opening agy's TUI, same terminal-launch handler as auth.
       if (agentId === 'antigravity') {
         return {
+          ...baseUi,
           primaryAction: 'launch-terminal-switch-model',
-          titleKey: 'chat.runError.title.rateLimited',
-          messageKey: null,
+          titleKey:
+            baseUi.titleKey === 'chat.runError.title.generic'
+              ? 'chat.runError.title.rateLimited'
+              : baseUi.titleKey,
           secondaryRetry: true,
           showSwitchCard: false,
         };
       }
       return {
+        ...baseUi,
         primaryAction: 'switch-model',
-        titleKey: 'chat.runError.title.modelUnavailable',
-        messageKey: null,
+        titleKey:
+          baseUi.titleKey === 'chat.runError.title.generic'
+            ? 'chat.runError.title.modelUnavailable'
+            : baseUi.titleKey,
         secondaryRetry: true,
         // AMR is the steadiest "other model" — promote it alongside.
         showSwitchCard: agentId !== 'amr',
@@ -627,9 +660,12 @@ function uiFromUserAction(
     }
     case 'reduce_context':
       return {
+        ...baseUi,
         primaryAction: 'reduce-context',
-        titleKey: 'chat.runError.title.promptTooLarge',
-        messageKey: null,
+        titleKey:
+          baseUi.titleKey === 'chat.runError.title.generic'
+            ? 'chat.runError.title.promptTooLarge'
+            : baseUi.titleKey,
         secondaryRetry: true,
         showSwitchCard: false,
       };
@@ -638,18 +674,17 @@ function uiFromUserAction(
       // No dedicated button for these in the card vocabulary; the raw daemon
       // guidance text explains the fix and Retry re-runs once it's resolved.
       return {
+        ...baseUi,
         primaryAction: 'retry',
-        titleKey: 'chat.runError.title.generic',
-        messageKey: null,
         secondaryRetry: false,
         showSwitchCard: false,
       };
-    case 'retry':
-    default: {
+    case 'retry': {
       // A mid-response connection drop keeps its localized copy even when the
       // daemon classifies the action as a plain retry.
       if (code === 'AGENT_CONNECTION_DROPPED') {
         return {
+          ...baseUi,
           primaryAction: 'retry',
           titleKey: 'chat.runError.title.connectionDropped',
           messageKey: 'chat.connectionDropped',
@@ -659,11 +694,10 @@ function uiFromUserAction(
       }
       const promote = typeof code === 'string' && PROMOTE_AMR_CODES.has(code);
       return {
+        ...baseUi,
         primaryAction: 'retry',
-        titleKey: 'chat.runError.title.generic',
-        messageKey: null,
         secondaryRetry: false,
-        showSwitchCard: agentId !== 'amr' && promote,
+        showSwitchCard: agentId !== 'amr' && (baseUi.showSwitchCard || promote),
       };
     }
   }
