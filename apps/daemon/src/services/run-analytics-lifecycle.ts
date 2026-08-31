@@ -49,6 +49,7 @@ import {
   amrUserIdForRunAnalytics,
   hasExplicitRequestedModelForAnalytics,
   runtimeTypeForRunAnalytics,
+  scanRunEventsForPerRequestUsageAnalytics,
   scanRunEventsForUsageAnalytics,
   summarizeRunTimingAnalytics,
   summarizeToolAnalytics,
@@ -733,6 +734,7 @@ export function createRunAnalyticsLifecycle(
             reqBody.model,
             userQueryTokens,
           );
+          const perRequestUsage = scanRunEventsForPerRequestUsageAnalytics(run.events);
           // Whether this run is a non-first turn in its conversation — i.e. a
           // prior completed assistant turn exists (excluding this run's own
           // placeholder). The session-reuse cache win only applies to follow-up
@@ -1092,6 +1094,21 @@ export function createRunAnalyticsLifecycle(
               cache_token_source: usageAnalytics.cache_token_source,
               // Prefer provider scan over run_created baseProps (`estimated`).
               token_count_source: usageAnalytics.token_count_source,
+              // Per-request token coverage (#4610): how many model requests in
+              // this run carry a per-request usage record (request_id + tokens),
+              // and whether their token sum reconciles with the run-level
+              // aggregate above. Lifts request-level cost/percentile analysis off
+              // the ~0.9% floor for claude_code.
+              request_usage_count: perRequestUsage.request_count,
+              ...(perRequestUsage.input_tokens_sum !== undefined
+                ? { request_usage_input_tokens_sum: perRequestUsage.input_tokens_sum }
+                : {}),
+              ...(perRequestUsage.output_tokens_sum !== undefined
+                ? { request_usage_output_tokens_sum: perRequestUsage.output_tokens_sum }
+                : {}),
+              ...(perRequestUsage.reconciles_aggregate !== null
+                ? { request_usage_reconciles_aggregate: perRequestUsage.reconciles_aggregate }
+                : {}),
               tool_error_count: toolAnalytics.tool_error_count,
               tool_name_count: toolAnalytics.tool_name_count,
               tool_names: toolAnalytics.tool_names_csv,
