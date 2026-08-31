@@ -11581,6 +11581,10 @@ export async function startServer({
             },
             { kind: 'researchCommandContract', content: researchCommandContract },
             { kind: 'runContextPrompt', content: runContextPrompt },
+            {
+              kind: 'connectedExternalMcpReference',
+              content: mcpConnectedDirective,
+            },
             { kind: 'browserUsePromptGuard', content: browserUsePromptGuard },
             { kind: 'titleGenerationPrompt', content: titleGenerationPrompt },
             { kind: 'echoGuard', content: agentEchoGuard },

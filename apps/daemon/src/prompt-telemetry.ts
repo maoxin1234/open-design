@@ -26,6 +26,7 @@ export type PromptTelemetrySectionKind =
   | 'runContextPrompt'
   | 'browserUsePromptGuard'
   | 'titleGenerationPrompt'
+  | 'connectedExternalMcpReference'
   | 'clientSystemPrompt'
   | 'echoGuard'
   | 'userRequest'
@@ -76,6 +77,7 @@ export const PROMPT_SECTION_CACHE_CLASS: Record<
   runContextPrompt: 'volatile',
   browserUsePromptGuard: 'volatile',
   titleGenerationPrompt: 'volatile',
+  connectedExternalMcpReference: 'volatile',
   echoGuard: 'volatile',
   userRequest: 'volatile',
   cwdHint: 'volatile',
@@ -234,6 +236,7 @@ const REDACTED_CONTENT_KINDS = new Set<PromptTelemetrySectionKind>([
   'runContextPrompt',
   'browserUsePromptGuard',
   'titleGenerationPrompt',
+  'connectedExternalMcpReference',
   'clientSystemPrompt',
   'echoGuard',
   'userRequest',
@@ -256,6 +259,7 @@ const SECTION_PRIORITY = new Map<PromptTelemetrySectionKind, number>([
   ['runContextPrompt', 7],
   ['browserUsePromptGuard', 8],
   ['titleGenerationPrompt', 8],
+  ['connectedExternalMcpReference', 8],
   ['echoGuard', 8],
   ['userRequest', 9],
 ]);
@@ -359,12 +363,12 @@ function stripRuntimeToolPromptTokens(input: string): string {
     .map((line) => {
       if (line.includes('OD_TOOL_TOKEN')) {
         if (line.includes('is available')) {
-          return '- [OD_TOOL_TOKEN_AVAILABLE]';
+          return '- [TOKEN_AVAILABLE]';
         }
         if (line.includes('is not available') || line.includes('unavailable')) {
-          return '- [OD_TOOL_TOKEN_UNAVAILABLE]';
+          return '- [TOKEN_UNAVAILABLE]';
         }
-        return '- [OD_TOOL_TOKEN_REDACTED]';
+        return '- [TOKEN_REDACTED]';
       }
       return line;
     })

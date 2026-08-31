@@ -25,6 +25,7 @@ function buildSections({
   runContextPrompt = '',
   browserUsePromptGuard = '',
   titleGenerationPrompt = '',
+  connectedExternalMcpReference = '',
   userRequest = 'do the thing',
 }: Partial<Record<string, string>> = {}): PromptTelemetryInputSection[] {
   return [
@@ -37,6 +38,10 @@ function buildSections({
     { kind: 'pluginStagePrompt', content: pluginStagePrompt },
     { kind: 'researchCommandContract', content: researchCommandContract },
     { kind: 'runContextPrompt', content: runContextPrompt },
+    {
+      kind: 'connectedExternalMcpReference',
+      content: connectedExternalMcpReference,
+    },
     { kind: 'browserUsePromptGuard', content: browserUsePromptGuard },
     { kind: 'titleGenerationPrompt', content: titleGenerationPrompt },
     { kind: 'userRequest', content: userRequest },
@@ -129,22 +134,22 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
 
     expect(availSec?.fingerprint).not.toBe(unavailSec?.fingerprint);
     expect(available.cacheablePrefixFingerprint).not.toBe(unavailable.cacheablePrefixFingerprint);
-    expect(availSec?.redactedContent).toContain('[OD_TOOL_TOKEN_AVAILABLE]');
-    expect(unavailSec?.redactedContent).toContain('[OD_TOOL_TOKEN_UNAVAILABLE]');
+    expect(availSec?.redactedContent).toContain('[TOKEN_AVAILABLE]');
+    expect(unavailSec?.redactedContent).toContain('[TOKEN_UNAVAILABLE]');
     expect(availSec?.redactedContent).not.toContain('secret');
   });
 
   it('fingerprints volatile split sections by their redacted text (#4679 review)', () => {
-    // browserUsePromptGuard and titleGenerationPrompt are emitted as their own
-    // sections. They are content-bearing, so mutating just one of them must move
-    // the section fingerprint and the whole-stack fingerprint — otherwise the
-    // metadata-only fallback collapses every non-empty string to one fingerprint
-    // and the telemetry silently misses the byte change.
+    // browserUsePromptGuard, titleGenerationPrompt, and connectedExternalMcpReference
+    // are emitted as their own sections. They are content-bearing, so mutating just
+    // one of them must move the section fingerprint and the whole-stack fingerprint
+    // without invalidating the stable cacheable prefix.
     const base = buildPromptStackTelemetry({
       composedPrompt: 'a',
       sections: buildSections({
         browserUsePromptGuard: 'do not click suspicious links',
         titleGenerationPrompt: 'emit a concise title',
+        connectedExternalMcpReference: 'use mcp tools for jira',
       }),
     });
     const guardChanged = buildPromptStackTelemetry({
@@ -152,6 +157,7 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
       sections: buildSections({
         browserUsePromptGuard: 'a completely different browser-use guard body',
         titleGenerationPrompt: 'emit a concise title',
+        connectedExternalMcpReference: 'use mcp tools for jira',
       }),
     });
     const titleChanged = buildPromptStackTelemetry({
@@ -159,6 +165,15 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
       sections: buildSections({
         browserUsePromptGuard: 'do not click suspicious links',
         titleGenerationPrompt: 'produce a totally different title instruction',
+        connectedExternalMcpReference: 'use mcp tools for jira',
+      }),
+    });
+    const mcpChanged = buildPromptStackTelemetry({
+      composedPrompt: 'a',
+      sections: buildSections({
+        browserUsePromptGuard: 'do not click suspicious links',
+        titleGenerationPrompt: 'emit a concise title',
+        connectedExternalMcpReference: 'use mcp tools for github',
       }),
     });
 
@@ -166,14 +181,26 @@ describe('cacheable-prefix fingerprint invariant (#4679)', () => {
       t.sections.find((s) => s.kind === 'browserUsePromptGuard')?.fingerprint;
     const titleFp = (t: typeof base) =>
       t.sections.find((s) => s.kind === 'titleGenerationPrompt')?.fingerprint;
+    const mcpFp = (t: typeof base) =>
+      t.sections.find((s) => s.kind === 'connectedExternalMcpReference')?.fingerprint;
 
     expect(guardFp(guardChanged)).not.toBe(guardFp(base));
     expect(titleFp(guardChanged)).toBe(titleFp(base));
+    expect(mcpFp(guardChanged)).toBe(mcpFp(base));
     expect(guardChanged.stackFingerprint).not.toBe(base.stackFingerprint);
+    expect(guardChanged.cacheablePrefixFingerprint).toBe(base.cacheablePrefixFingerprint);
 
     expect(titleFp(titleChanged)).not.toBe(titleFp(base));
     expect(guardFp(titleChanged)).toBe(guardFp(base));
+    expect(mcpFp(titleChanged)).toBe(mcpFp(base));
     expect(titleChanged.stackFingerprint).not.toBe(base.stackFingerprint);
+    expect(titleChanged.cacheablePrefixFingerprint).toBe(base.cacheablePrefixFingerprint);
+
+    expect(mcpFp(mcpChanged)).not.toBe(mcpFp(base));
+    expect(guardFp(mcpChanged)).toBe(guardFp(base));
+    expect(titleFp(mcpChanged)).toBe(titleFp(base));
+    expect(mcpChanged.stackFingerprint).not.toBe(base.stackFingerprint);
+    expect(mcpChanged.cacheablePrefixFingerprint).toBe(base.cacheablePrefixFingerprint);
   });
 
   it('flags a volatile preamble ahead of the stable block (#4679 review)', () => {
