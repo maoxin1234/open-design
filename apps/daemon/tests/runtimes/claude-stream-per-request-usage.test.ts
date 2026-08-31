@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import { createClaudeStreamHandler } from '../../src/runtimes/claude-stream.js';
 import { scanRunEventsForPerRequestUsageAnalytics } from '../../src/run-analytics-observability.js';
+import { daemonAgentPayloadToPersistedAgentEvent } from '../../src/runtimes/chat-run-messages.js';
 // Untyped replay-mock helper (plain .mjs, no shipped declarations) — imported
 // so the per-request capture path is validated against the real mock output.
 // @ts-expect-error: no type declarations for the mocks helper
@@ -280,5 +281,27 @@ describe('claude-stream per-request usage capture', () => {
     expect(analytics.input_tokens_sum).toBe(42);
     expect(analytics.output_tokens_sum).toBe(10);
     expect(analytics.reconciles_aggregate).toBe(false);
+  });
+
+  it('persists request_usage into durable PersistedAgentEvent through daemonAgentPayloadToPersistedAgentEvent', () => {
+    const liveEvent = {
+      type: 'request_usage',
+      requestId: 'msg_test_123',
+      usage: {
+        input_tokens: 15,
+        output_tokens: 8,
+        cache_creation_input_tokens: 2,
+        cache_read_input_tokens: 4,
+      },
+    };
+    const persisted = daemonAgentPayloadToPersistedAgentEvent(liveEvent);
+    expect(persisted).toEqual({
+      kind: 'request_usage',
+      requestId: 'msg_test_123',
+      inputTokens: 15,
+      outputTokens: 8,
+      cacheCreationInputTokens: 2,
+      cacheReadInputTokens: 4,
+    });
   });
 });
