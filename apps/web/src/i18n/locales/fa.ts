@@ -120,6 +120,7 @@ export const fa: Dict = {
   'chat.runError.signInMessage.amr': 'عامل OpenDesign Cloud هنوز وارد نشده است — برای استفاده وارد شوید.',
   'chat.runError.signInMessage.other': '{agent} وارد نشده است. وضعیت ورود را به‌صورت محلی بررسی کنید. عامل OpenDesign Cloud را توصیه می‌کنیم — پایدارتر و مقرون‌به‌صرفه‌تر.',
   'chat.runError.switchModelCta': 'تغییر به مدل دیگر',
+  'chat.runError.reduceContextCta': 'گفتگوی جدید',
   'chat.runError.agentFallback': 'عامل',
   'chat.runError.sourceLabel': 'جزئیات خطا',
   'chat.runError.sourceExpandAria': 'گسترش منبع خطا',

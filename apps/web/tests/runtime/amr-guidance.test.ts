@@ -753,16 +753,70 @@ describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
 
   it('handles unknown or forward-compatible user_action strings by falling back to base UI', () => {
     // A future daemon might introduce a new user_action string that this web build
-    // does not explicitly know. It must degrade gracefully to the base UI rather than throw.
-    const ui = resolveRunFailureUi(
+    // does not explicitly know. It must degrade gracefully to the base UI rather than throw,
+    // retaining actionful recovery CTAs such as recharge.
+    const uiRateLimited = resolveRunFailureUi(
       'RATE_LIMITED',
       'claude',
       {
         userAction: 'future_unknown_action' as unknown as TrackingRunFailureUserAction,
       },
     );
-    expect(ui.primaryAction).toBe('retry');
+    expect(uiRateLimited.primaryAction).toBe('retry');
+    expect(uiRateLimited.titleKey).toBe('chat.runError.title.rateLimited');
+    expect(uiRateLimited.showSwitchCard).toBe(true);
+
+    const uiBalance = resolveRunFailureUi(
+      'AMR_INSUFFICIENT_BALANCE',
+      'amr',
+      {
+        userAction: 'future_unknown_action' as unknown as TrackingRunFailureUserAction,
+      },
+    );
+    expect(uiBalance.primaryAction).toBe('recharge');
+    expect(uiBalance.titleKey).toBe('chat.runError.title.balance');
+  });
+
+  it('lets failure_category drive display over proxy HTTP error codes (#4734 BYOK)', () => {
+    // sendProxyError returns UPSTREAM_UNAVAILABLE for HTTP 400 with model_unavailable
+    const byokModelUnavailable = resolveRunFailureUi(
+      'UPSTREAM_UNAVAILABLE',
+      'claude',
+      {
+        failureCategory: 'model_unavailable',
+        userAction: 'switch_model',
+      },
+    );
+    expect(byokModelUnavailable.titleKey).toBe('chat.runError.title.modelUnavailable');
+    expect(byokModelUnavailable.messageKey).toBe('chat.runError.modelUnavailableMessage');
+    expect(byokModelUnavailable.primaryAction).toBe('switch-model');
+    expect(byokModelUnavailable.showSwitchCard).toBe(true);
+
+    // sendProxyError returns UPSTREAM_UNAVAILABLE for HTTP 400 with prompt_too_large
+    const byokPromptTooLarge = resolveRunFailureUi(
+      'UPSTREAM_UNAVAILABLE',
+      'claude',
+      {
+        failureCategory: 'prompt_too_large',
+        userAction: 'reduce_context',
+      },
+    );
+    expect(byokPromptTooLarge.titleKey).toBe('chat.runError.title.promptTooLarge');
+    expect(byokPromptTooLarge.messageKey).toBe('chat.runError.promptTooLargeMessage');
+    expect(byokPromptTooLarge.primaryAction).toBe('reduce-context');
+  });
+
+  it('preserves Antigravity RATE_LIMITED terminal switch-model CTA when user_action is retry', () => {
+    const ui = resolveRunFailureUi(
+      'RATE_LIMITED',
+      'antigravity',
+      {
+        userAction: 'retry',
+      },
+    );
+    expect(ui.primaryAction).toBe('launch-terminal-switch-model');
     expect(ui.titleKey).toBe('chat.runError.title.rateLimited');
-    expect(ui.showSwitchCard).toBe(true);
+    expect(ui.secondaryRetry).toBe(true);
+    expect(ui.showSwitchCard).toBe(false);
   });
 });

@@ -550,7 +550,15 @@ export function resolveRunFailureUi(
     classification = options;
   }
 
-  const baseUi = uiFromErrorCode(code, detail, agentId, rawMsg);
+  const failureCategory =
+    classification?.failureCategory ??
+    (classification as { failure_category?: string | null })?.failure_category;
+  const failureDetail =
+    classification?.failureDetail ??
+    (classification as { failure_detail?: string | null })?.failure_detail ??
+    detail;
+
+  const baseUi = uiFromErrorCode(code, failureDetail, agentId, rawMsg, failureCategory);
   const userAction = classification?.userAction ?? classification?.user_action;
   if (!userAction || userAction === 'none') {
     return baseUi;
@@ -692,6 +700,10 @@ function uiFromUserAction(
           showSwitchCard: false,
         };
       }
+      // Antigravity RATE_LIMITED retains its terminal switch model action even when userAction is 'retry'
+      if (agentId === 'antigravity' && code === 'RATE_LIMITED') {
+        return baseUi;
+      }
       const promote = typeof code === 'string' && PROMOTE_AMR_CODES.has(code);
       return {
         ...baseUi,
@@ -701,15 +713,8 @@ function uiFromUserAction(
       };
     }
     default: {
-      // Protocol hardening: unknown or forward-compatible user_action strings
-      // degrade safely to the base UI rather than breaking.
-      const promote = typeof code === 'string' && PROMOTE_AMR_CODES.has(code);
-      return {
-        ...baseUi,
-        primaryAction: 'retry',
-        secondaryRetry: false,
-        showSwitchCard: agentId !== 'amr' && (baseUi.showSwitchCard || promote),
-      };
+      // Forward compatibility: unknown or future user_action strings leave baseUi untouched!
+      return baseUi;
     }
   }
 }
@@ -719,6 +724,7 @@ function uiFromErrorCode(
   detail: string | null | undefined,
   agentId: string | null | undefined,
   rawMessage?: string | null,
+  category?: string | null,
 ): RunFailureUi {
   // An ACP agent CLI that answered `initialize` and then refused to open a
   // session. Resolved before every other branch, and before the static
@@ -866,6 +872,130 @@ function uiFromErrorCode(
   // win, and before the generic code branches so it can correct them.
   const detailUi = typeof detail === 'string' ? DETAIL_FAILURE_UI[detail] : undefined;
   if (detailUi) return detailUi;
+
+  // Classified failure category (#4734): drives the display (titleKey & messageKey)
+  // before the action overlay. Takes precedence over generic / proxy HTTP error codes
+  // like UPSTREAM_UNAVAILABLE or AGENT_EXECUTION_FAILED.
+  if (category === 'model_unavailable') {
+    return {
+      primaryAction: 'retry',
+      titleKey: 'chat.runError.title.modelUnavailable',
+      messageKey: 'chat.runError.modelUnavailableMessage',
+      secondaryRetry: false,
+      showSwitchCard: agentId !== 'amr',
+    };
+  }
+  if (category === 'prompt_too_large') {
+    return {
+      primaryAction: 'reduce-context',
+      titleKey: 'chat.runError.title.promptTooLarge',
+      messageKey: 'chat.runError.promptTooLargeMessage',
+      secondaryRetry: true,
+      showSwitchCard: false,
+    };
+  }
+  if (category === 'insufficient_balance') {
+    if (agentId === 'amr') {
+      return {
+        primaryAction: 'recharge',
+        titleKey: 'chat.runError.title.balance',
+        messageKey: 'chat.amrError.balanceMessage',
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    }
+    return {
+      primaryAction: 'retry',
+      titleKey: 'chat.runError.title.balance',
+      messageKey: 'chat.amrError.balanceMessage',
+      secondaryRetry: false,
+      showSwitchCard: false,
+    };
+  }
+  if (category === 'entitlement_required') {
+    if (agentId === 'amr') {
+      return {
+        primaryAction: 'upgrade',
+        titleKey: 'chat.amrBalanceGate.title',
+        messageKey: null,
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    }
+    return {
+      primaryAction: 'retry',
+      titleKey: 'chat.amrBalanceGate.title',
+      messageKey: null,
+      secondaryRetry: false,
+      showSwitchCard: false,
+    };
+  }
+  if (category === 'auth') {
+    if (agentId === 'amr') {
+      return {
+        primaryAction: 'authorize',
+        titleKey: 'chat.runError.title.signInRequired',
+        messageKey: 'chat.runError.signInMessage.amr',
+        secondaryRetry: false,
+        showSwitchCard: false,
+      };
+    }
+    if (agentId === 'antigravity') {
+      return {
+        primaryAction: 'launch-terminal-auth',
+        titleKey: 'chat.runError.title.signInRequired',
+        messageKey: null,
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    }
+    return {
+      primaryAction: 'retry',
+      titleKey: 'chat.runError.title.signInRequired',
+      messageKey: 'chat.runError.signInMessage.other',
+      secondaryRetry: false,
+      showSwitchCard: true,
+    };
+  }
+  if (category === 'rate_limit') {
+    if (agentId === 'antigravity') {
+      return {
+        primaryAction: 'launch-terminal-switch-model',
+        titleKey: 'chat.runError.title.rateLimited',
+        messageKey: null,
+        secondaryRetry: true,
+        showSwitchCard: false,
+      };
+    }
+    return {
+      primaryAction: 'retry',
+      titleKey: 'chat.runError.title.rateLimited',
+      messageKey: 'chat.runError.rateLimitedMessage',
+      secondaryRetry: false,
+      showSwitchCard: true,
+    };
+  }
+  if (category === 'upstream_unavailable') {
+    return {
+      primaryAction: 'retry',
+      titleKey: 'chat.runError.title.upstreamUnavailable',
+      messageKey: 'chat.runError.upstreamUnavailableMessage',
+      secondaryRetry: false,
+      showSwitchCard: true,
+    };
+  }
+  if (category === 'timeout') {
+    return retryWithGuidance(
+      'chat.runError.title.timedOut',
+      'chat.runError.timedOutMessage',
+    );
+  }
+  if (category === 'empty_output') {
+    return retryWithGuidance(
+      'chat.runError.title.emptyOutput',
+      'chat.runError.emptyOutputMessage',
+    );
+  }
   // Agent-neutral: a mid-response connection drop (any agent) gets a clear,
   // localized "lost connection — retry" message instead of the raw SDK string.
   // Not an AMR-promotable case: the break is the user's own network path, which

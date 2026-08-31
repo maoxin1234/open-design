@@ -3046,6 +3046,20 @@ export function ChatPane({
                             >
                               {t('chat.amrBalanceGate.plansCta')}
                             </button>
+                          ) : runFailureUi.primaryAction === 'reduce-context' ? (
+                            // prompt_too_large: steer the user to start a fresh
+                            // conversation rather than retrying the same oversized
+                            // context (which would deterministically fail again).
+                            // Opens a new conversation tab via onNewConversation.
+                            // Retry stays secondary below via secondaryRetry.
+                            <button
+                              type="button"
+                              className="chat-error-action"
+                              disabled={newConversationDisabled}
+                              onClick={() => onNewConversation?.()}
+                            >
+                              {t('chat.runError.reduceContextCta')}
+                            </button>
                           ) : null}
                           {/*
                             'reduce-context' (#3408 §5) carries no bespoke

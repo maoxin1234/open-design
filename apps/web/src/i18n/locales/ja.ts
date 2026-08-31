@@ -120,6 +120,7 @@ export const ja: Dict = {
   'chat.runError.signInMessage.amr': 'OpenDesign Cloud エージェントはまだサインインしていません。サインインして使い始めてください。',
   'chat.runError.signInMessage.other': '{agent} がサインインしていません。ローカルでサインイン状態を確認してください。より安定してお得な OpenDesign Cloud エージェントがおすすめです。',
   'chat.runError.switchModelCta': '別のモデルに切り替える',
+  'chat.runError.reduceContextCta': '新しい会話',
   'chat.runError.agentFallback': 'エージェント',
   'chat.runError.sourceLabel': 'エラーの詳細',
   'chat.runError.sourceExpandAria': 'エラーのソースを展開',

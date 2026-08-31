@@ -120,6 +120,7 @@ export const ptBR: Dict = {
   'chat.runError.signInMessage.amr': 'O agente OpenDesign Cloud ainda não fez login — faça login para começar a usá-lo.',
   'chat.runError.signInMessage.other': '{agent} não fez login. Verifique o status de login localmente. Recomendamos o agente OpenDesign Cloud — mais estável e econômico.',
   'chat.runError.switchModelCta': 'Trocar para outro modelo',
+  'chat.runError.reduceContextCta': 'Nova conversa',
   'chat.runError.agentFallback': 'o agente',
   'chat.runError.sourceLabel': 'Detalhes do erro',
   'chat.runError.sourceExpandAria': 'Expandir origem do erro',

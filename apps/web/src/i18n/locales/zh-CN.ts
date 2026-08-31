@@ -126,6 +126,7 @@ export const zhCN: Dict = {
   "chat.runError.signInMessage.other":
     "{agent}尚未登录，请本地检查登录状态。推荐使用 OpenDesign Cloud 智能体，更稳定划算",
   "chat.runError.switchModelCta": "切换到其他模型",
+  "chat.runError.reduceContextCta": "新开对话",
   "chat.runError.agentFallback": "智能体",
   "chat.runError.sourceLabel": "查看错误详情",
   "chat.runError.sourceExpandAria": "展开报错源码",
