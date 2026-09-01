@@ -205,4 +205,61 @@ describe('ChatPane reduce-context CTA', () => {
     fireEvent.click(cta);
     expect(onNewConversation).toHaveBeenCalledTimes(1);
   });
+
+  it('renders clickable switch-model recovery CTA when live error is ingested and mounted with onOpenSettings without onRetry', () => {
+    const rawError = Object.assign(new Error('Model unavailable on provider.'), {
+      code: 'UPSTREAM_UNAVAILABLE',
+      failureCategory: 'model_unavailable',
+      userAction: 'switch_model',
+    });
+    const baseMessage: ChatMessage = {
+      id: 'msg-live-switch-model',
+      role: 'assistant',
+      content: '',
+      createdAt: Date.now(),
+      runId: 'run-live-model',
+      runStatus: 'running',
+      agentId: 'claude',
+      events: [],
+    };
+    const failure = runFailureFieldsFromError(rawError);
+    const failedMessage = {
+      ...appendErrorStatusEvent(baseMessage, rawError.message, rawError.code, failure),
+      runStatus: 'failed' as const,
+      endedAt: Date.now(),
+    };
+
+    const onOpenSettings = vi.fn();
+    render(
+      <ChatPane
+        messages={[failedMessage]}
+        streaming={false}
+        error={rawError.message}
+        projectId="project-1"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        conversations={[
+          { projectId: 'project-1', id: 'conv-1', title: 'Current', createdAt: 1, updatedAt: 1 },
+        ]}
+        activeConversationId="conv-1"
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        config={{
+          agentId: 'claude',
+          agentCliEnv: {},
+          installationId: 'install-123',
+          telemetry: { metrics: true },
+        } as unknown as AppConfig}
+      />,
+    );
+
+    const cta = screen.getByText('chat.runError.switchModelCta');
+    expect(cta).toBeTruthy();
+
+    fireEvent.click(cta);
+    expect(onOpenSettings).toHaveBeenCalledWith('execution');
+  });
 });

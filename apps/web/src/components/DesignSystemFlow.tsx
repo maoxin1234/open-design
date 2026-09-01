@@ -87,6 +87,7 @@ import { LibraryPicker } from './LibraryPicker';
 import { notifyConnectorsChanged } from './connectors-events';
 import { connectorAuthSnapshotChanged } from './connectors-state';
 import { FileWorkspace, type FileRefreshResult } from './FileWorkspace';
+import type { SettingsSection } from './SettingsDialog';
 import { Icon, type IconName } from './Icon';
 import { Spinner } from './Loading';
 import { Toast } from './Toast';
@@ -196,6 +197,7 @@ interface DetailProps {
   onProjectsRefresh?: () => Promise<void> | void;
   initialRevisionJob?: DesignSystemGenerationJob | null;
   onInitialRevisionJobConsumed?: (jobId: string) => void;
+  onOpenSettings?: (section?: SettingsSection) => void;
 }
 
 // Translator handle for the plain (non-component) helpers in this file that
@@ -1642,6 +1644,7 @@ export function DesignSystemDetailView({
   onProjectsRefresh,
   initialRevisionJob,
   onInitialRevisionJobConsumed,
+  onOpenSettings,
 }: DetailProps) {
   const { locale, t } = useI18n();
   const { context: workspaceContext } = useWorkspaceContext();
@@ -2873,6 +2876,7 @@ export function DesignSystemDetailView({
             onSelectConversation={selectProjectChatConversation}
             onDeleteConversation={() => {}}
             onNewConversation={createProjectChatConversation}
+            onOpenSettings={onOpenSettings}
           />
         </div>
       </aside>
