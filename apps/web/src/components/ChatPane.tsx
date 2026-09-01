@@ -1673,10 +1673,16 @@ export function ChatPane({
   // no-action card doesn't leave an empty flex row (and a dangling column gap).
   const runFailureHasAction = Boolean(
     retryAssistant &&
-      onRetry &&
       runFailureUi &&
-      (runFailureUi.primaryAction !== 'none' ||
-        runFailureUi.secondaryRetry ||
+      ((runFailureUi.primaryAction === 'authorize' && onRetry) ||
+        (runFailureUi.primaryAction === 'launch-terminal-auth' && onLaunchAntigravityOauth) ||
+        (runFailureUi.primaryAction === 'launch-terminal-switch-model' && onLaunchAntigravityOauth) ||
+        (runFailureUi.primaryAction === 'switch-model' && onOpenSettings) ||
+        runFailureUi.primaryAction === 'recharge' ||
+        runFailureUi.primaryAction === 'upgrade' ||
+        (runFailureUi.primaryAction === 'reduce-context' && onNewConversation) ||
+        (runFailureUi.primaryAction === 'retry' && onRetry) ||
+        (runFailureUi.secondaryRetry && onRetry) ||
         canResumeFailedRun),
   );
   // The generic local-CLI escape hatch is only used when the failure card has
@@ -1688,10 +1694,10 @@ export function ChatPane({
   const showAmrGuidance = Boolean(amrSwitchPayload);
   const visibleRecoveryActionTypes = useMemo(() => {
     const actions: TrackingRunRecoveryActionType[] = [];
-    if (!retryAssistant || !onRetry || !runFailureUi) return actions;
-    if (runFailureUi.primaryAction === 'authorize') actions.push('authorize_and_retry');
+    if (!retryAssistant || !runFailureUi) return actions;
+    if (runFailureUi.primaryAction === 'authorize' && onRetry) actions.push('authorize_and_retry');
     if (canResumeFailedRun) actions.push('resume_run');
-    else if (runFailureUi.primaryAction === 'retry' || runFailureUi.secondaryRetry) {
+    else if ((runFailureUi.primaryAction === 'retry' || runFailureUi.secondaryRetry) && onRetry) {
       actions.push('manual_retry');
     }
     if (showAmrGuidance && onSwitchToAmrAndRetry) actions.push('switch_runtime_retry');
@@ -2891,9 +2897,9 @@ export function ChatPane({
                           {t('avatar.useLocal')}
                         </button>
                       ) : null}
-                      {retryAssistant && onRetry && runFailureUi ? (
+                      {retryAssistant && runFailureUi ? (
                         <>
-                          {runFailureUi.primaryAction === 'authorize' ? (
+                          {runFailureUi.primaryAction === 'authorize' && onRetry ? (
                             // Sign in to AMR inline — the pill drives vela login,
                             // surfaces the activation URL/code when the browser
                             // doesn't auto-open, and on success we retry the run
@@ -3091,8 +3097,8 @@ export function ChatPane({
                             >
                               {t('chat.resumeRunCta')}
                             </button>
-                          ) : runFailureUi.primaryAction === 'retry' ||
-                            runFailureUi.secondaryRetry ? (
+                          ) : (runFailureUi.primaryAction === 'retry' ||
+                            runFailureUi.secondaryRetry) && onRetry ? (
                             <button
                               type="button"
                               className="chat-error-action chat-error-retry"

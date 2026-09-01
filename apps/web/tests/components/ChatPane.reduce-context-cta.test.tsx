@@ -66,6 +66,7 @@ function renderChat(
     onRetry?: (m: ChatMessage) => void;
     onNewConversation?: () => void;
     newConversationDisabled?: boolean;
+    omitRetryHandler?: boolean;
   } = {},
 ) {
   return render(
@@ -78,7 +79,7 @@ function renderChat(
       onEnsureProject={async () => 'project-1'}
       onSend={vi.fn()}
       onStop={vi.fn()}
-      onRetry={handlers.onRetry ?? vi.fn()}
+      onRetry={handlers.omitRetryHandler ? undefined : (handlers.onRetry ?? vi.fn())}
       onNewConversation={handlers.onNewConversation ?? vi.fn()}
       newConversationDisabled={handlers.newConversationDisabled ?? false}
       conversations={[
@@ -107,6 +108,20 @@ describe('ChatPane reduce-context CTA', () => {
 
     fireEvent.click(cta);
     expect(onNewConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders New conversation CTA when onRetry is absent (e.g. DesignSystemFlow mount)', () => {
+    const onNewConversation = vi.fn();
+    renderChat('codex', { onNewConversation, omitRetryHandler: true });
+
+    const cta = screen.getByText('chat.runError.reduceContextCta');
+    expect(cta).toBeTruthy();
+
+    fireEvent.click(cta);
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
+
+    // Retry button is omitted when onRetry is not provided
+    expect(screen.queryByText('promptTemplates.retry')).toBeNull();
   });
 
   it('keeps Retry available as the secondary recovery action', () => {
