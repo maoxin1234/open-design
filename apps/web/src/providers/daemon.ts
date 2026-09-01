@@ -1574,6 +1574,7 @@ async function consumeDaemonPhysicalRun({
         if (status.resumable === true) endResumable = true;
         if (status.failureCategory) endFailureCategory = status.failureCategory;
         if (status.failureDetail) endFailureDetail = status.failureDetail;
+        if (status.failureAction) endFailureAction = status.failureAction;
         reportArtifactCount(status.artifactCount);
         reportArtifactPaths(status.artifactPaths);
         if (status.strategyTask) endStrategyTask = status.strategyTask;

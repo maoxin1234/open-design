@@ -2544,6 +2544,50 @@ describe('streamViaDaemon', () => {
     expect(surfacedError.userAction).toBe('reduce_context');
     expect(surfacedError.user_action).toBe('reduce_context');
   });
+
+  it('carries finalize-time failureAction from terminal REST status after closed SSE attempts', async () => {
+    const handlers = createDaemonHandlers();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/runs') return jsonResponse({ runId: 'run-rest-fallback' });
+      if (url === '/api/runs/run-rest-fallback/events') {
+        // Closed/empty SSE stream without an end frame
+        return sseResponse('');
+      }
+      if (url === '/api/runs/run-rest-fallback') {
+        return new Response(
+          JSON.stringify({
+            id: 'run-rest-fallback',
+            status: 'failed',
+            exitCode: 1,
+            failureCategory: 'model_unavailable',
+            failureDetail: 'model_not_found',
+            failureAction: 'switch_model',
+            createdAt: 1,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await streamViaDaemon({
+      agentId: 'claude',
+      handlers,
+      history: [{ id: '1', role: 'user', content: 'Design button' }],
+      signal: new AbortController().signal,
+    });
+
+    expect(handlers.onError).toHaveBeenCalledTimes(1);
+    const [surfacedError] = handlers.onError.mock.calls[0] as unknown as [
+      Error & { failureCategory?: string; failureDetail?: string; userAction?: string; user_action?: string },
+    ];
+    expect(surfacedError.failureCategory).toBe('model_unavailable');
+    expect(surfacedError.failureDetail).toBe('model_not_found');
+    expect(surfacedError.userAction).toBe('switch_model');
+    expect(surfacedError.user_action).toBe('switch_model');
+  });
 });
 
 describe('streamMessageOpenAI', () => {
