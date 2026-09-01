@@ -819,4 +819,35 @@ describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
     expect(ui.secondaryRetry).toBe(true);
     expect(ui.showSwitchCard).toBe(false);
   });
+
+  it('preserves code-derived fallback controls when daemon user_action is absent or none with mismatched category (#4734)', () => {
+    // When code is AGENT_EXECUTION_FAILED and user_action is absent:
+    // Category should only update titleKey / messageKey, controls stay from code (primaryAction: 'retry')
+    const absentAction = resolveRunFailureUi(
+      'AGENT_EXECUTION_FAILED',
+      'claude',
+      {
+        failureCategory: 'prompt_too_large',
+      },
+    );
+    expect(absentAction.titleKey).toBe('chat.runError.title.promptTooLarge');
+    expect(absentAction.messageKey).toBe('chat.runError.promptTooLargeMessage');
+    expect(absentAction.primaryAction).toBe('retry');
+    expect(absentAction.secondaryRetry).toBe(false);
+
+    // When code is AGENT_EXECUTION_FAILED and user_action is explicitly 'none':
+    // Client must not invent an action; controls stay from code (primaryAction: 'retry')
+    const noneAction = resolveRunFailureUi(
+      'AGENT_EXECUTION_FAILED',
+      'claude',
+      {
+        failureCategory: 'prompt_too_large',
+        userAction: 'none',
+      },
+    );
+    expect(noneAction.titleKey).toBe('chat.runError.title.promptTooLarge');
+    expect(noneAction.messageKey).toBe('chat.runError.promptTooLargeMessage');
+    expect(noneAction.primaryAction).toBe('retry');
+    expect(noneAction.secondaryRetry).toBe(false);
+  });
 });

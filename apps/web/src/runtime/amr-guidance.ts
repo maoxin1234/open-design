@@ -558,12 +558,123 @@ export function resolveRunFailureUi(
     (classification as { failure_detail?: string | null })?.failure_detail ??
     detail;
 
-  const baseUi = uiFromErrorCode(code, failureDetail, agentId, rawMsg, failureCategory);
+  const rawBaseUi = uiFromErrorCode(code, failureDetail, agentId, rawMsg);
+  const hasSpecificDetail =
+    typeof failureDetail === 'string' &&
+    (failureDetail in AGENT_AGNOSTIC_DETAIL_FAILURE_UI ||
+      failureDetail in DETAIL_FAILURE_UI ||
+      failureDetail === 'model_window_limit' ||
+      failureDetail === 'membership_concurrency_limit');
+  const baseUi = hasSpecificDetail
+    ? rawBaseUi
+    : overlayCategoryDisplay(rawBaseUi, failureCategory, agentId);
   const userAction = classification?.userAction ?? classification?.user_action;
   if (!userAction || userAction === 'none') {
     return baseUi;
   }
   return uiFromUserAction(baseUi, userAction, agentId, code);
+}
+
+// Category drives display (titleKey / messageKey) only (#4734) without changing
+// the action controls (primaryAction / secondaryRetry / showSwitchCard).
+function overlayCategoryDisplay(
+  baseUi: RunFailureUi,
+  category: string | null | undefined,
+  agentId: string | null | undefined,
+): RunFailureUi {
+  if (!category) return baseUi;
+  switch (category) {
+    case 'model_unavailable':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.modelUnavailable',
+        messageKey: 'chat.runError.modelUnavailableMessage',
+      };
+    case 'prompt_too_large':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.promptTooLarge',
+        messageKey: 'chat.runError.promptTooLargeMessage',
+      };
+    case 'insufficient_balance':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.balance',
+        messageKey: 'chat.amrError.balanceMessage',
+      };
+    case 'entitlement_required':
+      return {
+        ...baseUi,
+        titleKey: 'chat.amrBalanceGate.title',
+        messageKey: null,
+      };
+    case 'auth':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.signInRequired',
+        messageKey:
+          agentId === 'amr'
+            ? 'chat.runError.signInMessage.amr'
+            : baseUi.messageKey ?? 'chat.runError.signInMessage.other',
+      };
+    case 'rate_limited':
+    case 'rate_limit':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.rateLimited',
+        messageKey: baseUi.messageKey ?? 'chat.runError.rateLimitedMessage',
+      };
+    case 'quota_exhausted':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.rateLimited',
+        messageKey: 'chat.runError.quotaExhaustedMessage',
+      };
+    case 'upstream_unavailable':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.upstreamUnavailable',
+        messageKey: 'chat.runError.upstreamUnavailableMessage',
+      };
+    case 'cli_not_installed':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.cliMissing',
+        messageKey: 'chat.runError.cliMissingMessage',
+      };
+    case 'tool_loop':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.toolLoop',
+        messageKey: 'chat.runError.toolLoopMessage',
+      };
+    case 'output_invalid':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.outputInvalid',
+        messageKey: 'chat.runError.outputInvalidMessage',
+      };
+    case 'runtime_config':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.runtimeConfig',
+        messageKey: 'chat.runError.runtimeConfigMessage',
+      };
+    case 'timeout':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.timedOut',
+        messageKey: 'chat.runError.timedOutMessage',
+      };
+    case 'empty_output':
+      return {
+        ...baseUi,
+        titleKey: 'chat.runError.title.emptyOutput',
+        messageKey: 'chat.runError.emptyOutputMessage',
+      };
+    default:
+      return baseUi;
+  }
 }
 
 // CTA driven by the daemon-decided `user_action`. Overlays the action-specific
@@ -724,7 +835,6 @@ function uiFromErrorCode(
   detail: string | null | undefined,
   agentId: string | null | undefined,
   rawMessage?: string | null,
-  category?: string | null,
 ): RunFailureUi {
   // An ACP agent CLI that answered `initialize` and then refused to open a
   // session. Resolved before every other branch, and before the static
@@ -873,129 +983,7 @@ function uiFromErrorCode(
   const detailUi = typeof detail === 'string' ? DETAIL_FAILURE_UI[detail] : undefined;
   if (detailUi) return detailUi;
 
-  // Classified failure category (#4734): drives the display (titleKey & messageKey)
-  // before the action overlay. Takes precedence over generic / proxy HTTP error codes
-  // like UPSTREAM_UNAVAILABLE or AGENT_EXECUTION_FAILED.
-  if (category === 'model_unavailable') {
-    return {
-      primaryAction: 'retry',
-      titleKey: 'chat.runError.title.modelUnavailable',
-      messageKey: 'chat.runError.modelUnavailableMessage',
-      secondaryRetry: false,
-      showSwitchCard: agentId !== 'amr',
-    };
-  }
-  if (category === 'prompt_too_large') {
-    return {
-      primaryAction: 'reduce-context',
-      titleKey: 'chat.runError.title.promptTooLarge',
-      messageKey: 'chat.runError.promptTooLargeMessage',
-      secondaryRetry: true,
-      showSwitchCard: false,
-    };
-  }
-  if (category === 'insufficient_balance') {
-    if (agentId === 'amr') {
-      return {
-        primaryAction: 'recharge',
-        titleKey: 'chat.runError.title.balance',
-        messageKey: 'chat.amrError.balanceMessage',
-        secondaryRetry: true,
-        showSwitchCard: false,
-      };
-    }
-    return {
-      primaryAction: 'retry',
-      titleKey: 'chat.runError.title.balance',
-      messageKey: 'chat.amrError.balanceMessage',
-      secondaryRetry: false,
-      showSwitchCard: false,
-    };
-  }
-  if (category === 'entitlement_required') {
-    if (agentId === 'amr') {
-      return {
-        primaryAction: 'upgrade',
-        titleKey: 'chat.amrBalanceGate.title',
-        messageKey: null,
-        secondaryRetry: true,
-        showSwitchCard: false,
-      };
-    }
-    return {
-      primaryAction: 'retry',
-      titleKey: 'chat.amrBalanceGate.title',
-      messageKey: null,
-      secondaryRetry: false,
-      showSwitchCard: false,
-    };
-  }
-  if (category === 'auth') {
-    if (agentId === 'amr') {
-      return {
-        primaryAction: 'authorize',
-        titleKey: 'chat.runError.title.signInRequired',
-        messageKey: 'chat.runError.signInMessage.amr',
-        secondaryRetry: false,
-        showSwitchCard: false,
-      };
-    }
-    if (agentId === 'antigravity') {
-      return {
-        primaryAction: 'launch-terminal-auth',
-        titleKey: 'chat.runError.title.signInRequired',
-        messageKey: null,
-        secondaryRetry: true,
-        showSwitchCard: false,
-      };
-    }
-    return {
-      primaryAction: 'retry',
-      titleKey: 'chat.runError.title.signInRequired',
-      messageKey: 'chat.runError.signInMessage.other',
-      secondaryRetry: false,
-      showSwitchCard: true,
-    };
-  }
-  if (category === 'rate_limit') {
-    if (agentId === 'antigravity') {
-      return {
-        primaryAction: 'launch-terminal-switch-model',
-        titleKey: 'chat.runError.title.rateLimited',
-        messageKey: null,
-        secondaryRetry: true,
-        showSwitchCard: false,
-      };
-    }
-    return {
-      primaryAction: 'retry',
-      titleKey: 'chat.runError.title.rateLimited',
-      messageKey: 'chat.runError.rateLimitedMessage',
-      secondaryRetry: false,
-      showSwitchCard: true,
-    };
-  }
-  if (category === 'upstream_unavailable') {
-    return {
-      primaryAction: 'retry',
-      titleKey: 'chat.runError.title.upstreamUnavailable',
-      messageKey: 'chat.runError.upstreamUnavailableMessage',
-      secondaryRetry: false,
-      showSwitchCard: true,
-    };
-  }
-  if (category === 'timeout') {
-    return retryWithGuidance(
-      'chat.runError.title.timedOut',
-      'chat.runError.timedOutMessage',
-    );
-  }
-  if (category === 'empty_output') {
-    return retryWithGuidance(
-      'chat.runError.title.emptyOutput',
-      'chat.runError.emptyOutputMessage',
-    );
-  }
+
   // Agent-neutral: a mid-response connection drop (any agent) gets a clear,
   // localized "lost connection — retry" message instead of the raw SDK string.
   // Not an AMR-promotable case: the break is the user's own network path, which

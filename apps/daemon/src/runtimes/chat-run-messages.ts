@@ -28,6 +28,7 @@ type ChatRunMessageState = {
   errorCode?: string | null;
   failureCategory?: string | null;
   failureDetail?: string | null;
+  failureAction?: string | null;
 };
 
 type PendingMessageEvents = {
@@ -284,7 +285,8 @@ export function persistRunFailureClassification(
   if (!run.assistantMessageId) return;
   const failureCategory = run.failureCategory ?? null;
   const failureDetail = run.failureDetail ?? null;
-  if (!failureCategory && !failureDetail) return;
+  const failureAction = run.failureAction ?? null;
+  if (!failureCategory && !failureDetail && !failureAction) return;
   try {
     finalizeRunMessageEvents(db, run);
     const row = db
@@ -312,8 +314,13 @@ export function persistRunFailureClassification(
       : { kind: 'status', label: 'error' };
     const enriched: Record<string, unknown> = {
       ...base,
-      ...(failureCategory ? { failureCategory } : {}),
-      ...(failureDetail ? { failureDetail } : {}),
+      ...(failureCategory
+        ? { failureCategory, failure_category: failureCategory }
+        : {}),
+      ...(failureDetail
+        ? { failureDetail, failure_detail: failureDetail }
+        : {}),
+      ...(failureAction ? { user_action: failureAction } : {}),
     };
     if (run.errorCode && typeof enriched.code !== 'string') enriched.code = run.errorCode;
     if (idx >= 0) {
