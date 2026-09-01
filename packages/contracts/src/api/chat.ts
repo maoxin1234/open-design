@@ -41,7 +41,7 @@ export type RunFailureCategory = TrackingRunFailureCategory;
 export type RunFailureDetail = TrackingRunFailureDetail;
 export type RunCancelOrigin = TrackingRunCancelOrigin;
 export type RunTerminalTrigger = TrackingRunTerminalTrigger;
-export type RunFailureAction = 'relogin' | 'recharge' | 'upgrade' | 'retry' | 'none';
+export type RunFailureAction = TrackingRunFailureUserAction;
 
 export type ChatRole = 'user' | 'assistant';
 export type ChatSessionMode = 'design' | 'chat' | 'plan';
@@ -835,6 +835,7 @@ export type PersistedAgentEvent =
       failureCategory?: RunFailureCategory;
       failureDetail?: RunFailureDetail;
       failure_category?: TrackingRunFailureCategory;
+      failure_detail?: TrackingRunFailureDetail;
       user_action?: TrackingRunFailureUserAction;
     }
   | { kind: 'text'; text: string }
