@@ -547,7 +547,11 @@ import {
   type RunLifecycleStreamEventMarkers,
 } from './run-lifecycle-tracer.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
-import { classifyRunFailure, isResumableFailure } from './run-failure-classification.js';
+import {
+  classifyLiveErrorEvent,
+  classifyRunFailure,
+  isResumableFailure,
+} from './run-failure-classification.js';
 import { validateRunDeliverable } from './run-deliverable-validation.js';
 import {
   POST_TOOL_RESUME_CONTINUATION_PROMPT,
@@ -11786,47 +11790,15 @@ export async function startServer({
         data.error &&
         data.error.user_action === undefined
       ) {
-        const errorCode =
-          typeof data.error.code === 'string' ? data.error.code : undefined;
-        const baseErrorMessage =
-          typeof data.error.message === 'string'
-            ? data.error.message
-            : typeof data.message === 'string'
-              ? data.message
-              : '';
-        // The BYOK proxy collapses the upstream response to "Upstream error:
-        // <status>" and keeps the provider's real body in `details`. Fold it
-        // into the classified text so model-unavailable / quota / auth wording
-        // inside it drives the CTA, even before this error event lands in
-        // `run.events`. A string body is the raw response text; an object body
-        // is an SSE error frame whose message-ish fields are what we want.
-        const detailsRaw = data.error.details;
-        const detailsMessage =
-          typeof detailsRaw === 'string'
-            ? detailsRaw
-            : detailsRaw && typeof detailsRaw === 'object'
-              ? [
-                  typeof detailsRaw.message === 'string' ? detailsRaw.message : '',
-                  detailsRaw.error && typeof detailsRaw.error === 'object' &&
-                  typeof detailsRaw.error.message === 'string'
-                    ? detailsRaw.error.message
-                    : '',
-                ]
-                  .filter(Boolean)
-                  .join('\n')
-              : '';
-        const errorMessage = [baseErrorMessage, detailsMessage]
-          .filter(Boolean)
-          .join('\n');
-        const failure = classifyRunFailure({
-          result: 'failed',
-          status: { status: 'failed', error: errorMessage, errorCode },
-          ...(errorCode ? { errorCode } : {}),
+        const failure = classifyLiveErrorEvent({
+          errorData: data,
           agentId: run.agentId,
           events: run.events,
         });
-        data.error.failure_category = failure.failure_category;
-        data.error.user_action = failure.user_action;
+        if (failure) {
+          data.error.failure_category = failure.failure_category;
+          data.error.user_action = failure.user_action;
+        }
       }
       persistRunEventToAssistantMessage(db, run, event, data);
       design.runs.emit(run, event, data);

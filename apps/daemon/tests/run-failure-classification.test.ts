@@ -48,6 +48,7 @@ vi.mock('../src/runtimes/auth.js', () => ({
 }));
 
 import {
+  classifyLiveErrorEvent,
   classifyRunFailure,
   isResumableFailure,
   type RunEventForFailureClassification,
@@ -2676,5 +2677,82 @@ describe('classifyRunFailure — sampled 0.15.1 provider request failures', () =
 
     expect(result).toMatchObject(expected);
     expect(isResumableFailure(result)).toBe(resumable);
+  });
+});
+
+describe('classifyLiveErrorEvent (#4734)', () => {
+  it('classifies code-only details payload consistently with finalize-time classification', () => {
+    const errorData = {
+      message: 'Upstream error: 400',
+      error: {
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'Upstream error: 400',
+        details: {
+          code: 'model_not_found',
+        },
+      },
+    };
+
+    const failure = classifyLiveErrorEvent({
+      errorData,
+      agentId: 'claude',
+      events: [],
+    });
+
+    expect(failure).toMatchObject({
+      failure_category: 'model_unavailable',
+      failure_detail: 'model_not_found',
+      user_action: 'switch_model',
+    });
+  });
+
+  it('classifies nested object details payload', () => {
+    const errorData = {
+      message: 'Upstream error: 400',
+      error: {
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'Upstream error: 400',
+        details: {
+          error: {
+            message: 'The model glm-4-plus does not exist.',
+            code: 'model_not_found',
+          },
+        },
+      },
+    };
+
+    const failure = classifyLiveErrorEvent({
+      errorData,
+      agentId: 'claude',
+      events: [],
+    });
+
+    expect(failure).toMatchObject({
+      failure_category: 'model_unavailable',
+      failure_detail: 'model_not_found',
+      user_action: 'switch_model',
+    });
+  });
+
+  it('classifies string details payload (raw provider body)', () => {
+    const errorData = {
+      message: 'Upstream error: 400',
+      error: {
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'Upstream error: 400',
+        details: '{"error":{"message":"Prompt exceeds maximum context length of 128000 tokens","code":"context_length_exceeded"}}',
+      },
+    };
+
+    const failure = classifyLiveErrorEvent({
+      errorData,
+      agentId: 'claude',
+      events: [],
+    });
+
+    expect(failure).toMatchObject({
+      failure_category: 'prompt_too_large',
+      user_action: 'reduce_context',
+    });
   });
 });

@@ -435,7 +435,7 @@ function modelUnavailableDetail(text: string): TrackingRunFailureDetail | null {
   if (/\b(unsupported model\b|model .*not supported|not supported model\b|requested model is not supported|supported api model names|not supported when using codex)\b/i.test(text)) {
     return 'model_not_supported';
   }
-  if (/\b(model (?:is )?(?:unavailable|not available|unsupported|not found)|selected model is not available|not have access|no access|model .*not found|no healthy deployments|model .*not in (?:the )?allowed list)\b/i.test(text)) {
+  if (/\b(model(?:_|\s+)(?:is\s+)?(?:unavailable|not[_\s]available|unsupported|not[_\s]found)|selected model is not available|not have access|no access|model[_\s].*not[_\s]?found|model_not_found|model_unavailable|invalid_model|no healthy deployments|model .*not in (?:the )?allowed list)\b/i.test(text)) {
     return 'model_not_found';
   }
   // CJK providers (GLM/Zhipu, Qwen, Moonshot, etc.) return model-unavailable
@@ -1474,4 +1474,44 @@ export function classifyRunFailure(
     ...(failureMechanism ? { failure_mechanism: failureMechanism } : {}),
     ...(terminalTrigger ? { terminal_trigger: terminalTrigger } : {}),
   };
+}
+
+/**
+ * Classify a live error event before it is appended to run history, so the
+ * surfaced SSE `error` frame carries the structured failure category and
+ * actionable `user_action` without duplicating provider-details parsing in the
+ * server composition root (#4734).
+ */
+export function classifyLiveErrorEvent(input: {
+  errorData: Record<string, unknown>;
+  agentId?: string | null;
+  events?: RunEventForFailureClassification[];
+}): RunFailureClassification | undefined {
+  const errorObj = input.errorData.error && typeof input.errorData.error === 'object'
+    ? input.errorData.error as Record<string, unknown>
+    : input.errorData;
+  const errorCode =
+    typeof errorObj.code === 'string' ? errorObj.code : undefined;
+  const baseErrorMessage =
+    typeof errorObj.message === 'string'
+      ? errorObj.message
+      : typeof input.errorData.message === 'string'
+        ? input.errorData.message
+        : '';
+  const detailsParts = detailsText(errorObj.details ?? input.errorData.details);
+  const errorMessage = [baseErrorMessage, ...detailsParts]
+    .filter(Boolean)
+    .join('\n');
+
+  return classifyRunFailure({
+    result: 'failed',
+    status: {
+      status: 'failed',
+      error: errorMessage,
+      ...(errorCode ? { errorCode } : {}),
+    },
+    ...(errorCode ? { errorCode } : {}),
+    ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
+    ...(input.events !== undefined ? { events: input.events } : {}),
+  });
 }
