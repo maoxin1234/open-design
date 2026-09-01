@@ -675,7 +675,19 @@ export function assertOdNextExactSendPromptEvidence(input: {
     persisted: input.persisted,
     stage: input.stage,
   });
-  if (!isDeepStrictEqual(input.telemetry, expected)) {
+
+  // Tolerate legacy pre-4681 snapshots that lack additive cacheablePrefix fields
+  const normalizedTelemetry: PromptStackTelemetry = {
+    ...input.telemetry,
+    cacheablePrefixFingerprint:
+      input.telemetry.cacheablePrefixFingerprint ?? expected.cacheablePrefixFingerprint,
+    cacheablePrefixSectionCount:
+      input.telemetry.cacheablePrefixSectionCount ?? expected.cacheablePrefixSectionCount,
+    cacheablePrefixContiguous:
+      input.telemetry.cacheablePrefixContiguous ?? expected.cacheablePrefixContiguous,
+  };
+
+  if (!isDeepStrictEqual(normalizedTelemetry, expected)) {
     throw new InvalidOdNextExactSendPromptError(
       'Persisted OD Next exact-send Prompt evidence no longer matches its authoritative task mapping.',
     );
