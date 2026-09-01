@@ -66,6 +66,16 @@ describe('cacheable-prefix classification (#4679)', () => {
       ),
     ).toThrow(/unclassified prompt-stack section kind/);
   });
+
+  it('throws on inherited Object.prototype property names', () => {
+    for (const inheritedKey of ['toString', 'constructor', '__proto__', 'valueOf', 'hasOwnProperty']) {
+      expect(() =>
+        classifyPromptSectionCacheClass(
+          inheritedKey as PromptTelemetrySectionKind,
+        ),
+      ).toThrow(/unclassified prompt-stack section kind/);
+    }
+  });
 });
 
 describe('cacheable-prefix fingerprint invariant (#4679)', () => {

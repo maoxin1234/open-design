@@ -97,11 +97,10 @@ export const PROMPT_SECTION_CACHE_CLASS: Record<
 export function classifyPromptSectionCacheClass(
   kind: PromptTelemetrySectionKind,
 ): PromptSectionCacheClass {
-  const cacheClass = PROMPT_SECTION_CACHE_CLASS[kind];
-  if (cacheClass === undefined) {
+  if (!Object.hasOwn(PROMPT_SECTION_CACHE_CLASS, kind)) {
     throw new Error(`unclassified prompt-stack section kind: ${String(kind)}`);
   }
-  return cacheClass;
+  return PROMPT_SECTION_CACHE_CLASS[kind];
 }
 
 export interface PromptTelemetryInputSection {
