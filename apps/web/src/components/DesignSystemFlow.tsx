@@ -43,7 +43,7 @@ import {
   saveMessage,
   saveTabs,
 } from '../state/projects';
-import { appendErrorStatusEvent } from '../runtime/chat-events';
+import { appendErrorStatusEvent, runFailureFieldsFromError } from '../runtime/chat-events';
 import { parseDesignMd } from '../runtime/design-md-parse';
 import {
   buildDesignSystemPackageAuditRepairPrompt,
@@ -2641,10 +2641,12 @@ export function DesignSystemDetailView({
           },
           onError: (error) => {
             const message = error.message;
+            const code = (error as { code?: string })?.code;
+            const failure = runFailureFieldsFromError(error);
             setChatError(message);
             updateAssistant(
               (previous) => ({
-                ...appendErrorStatusEvent(previous, message),
+                ...appendErrorStatusEvent(previous, message, code, failure),
                 endedAt: Date.now(),
                 runStatus: 'failed',
               }),

@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { TrackingRunFailureUserAction } from '@open-design/contracts';
+import type {
+  TrackingRunFailureCategory,
+  TrackingRunFailureUserAction,
+} from '@open-design/contracts';
 import {
   DEFAULT_AMR_RECHARGE_URL,
   OPEN_DESIGN_PRICING_URL,
@@ -623,31 +626,80 @@ describe('resolveRunFailureUi', () => {
 // `user_action` value list mirrors the daemon classifier's
 // `TrackingRunFailureUserAction` union so the two layers can't drift.
 describe('resolveRunFailureUi — daemon user_action drives the CTA', () => {
-  it('maps every user_action to the expected primary action', () => {
-    // [userAction, agentId, expected primaryAction]
-    const cases: Array<[
+  it('maps every user_action to the expected primary action (compile-time exhaustive)', () => {
+    // Compile-time exhaustive map ensuring all non-none user actions are mapped
+    const userActionMap = {
+      retry: { agentId: 'claude', expected: 'retry' },
+      login: { agentId: 'amr', expected: 'authorize' },
+      recharge: { agentId: 'amr', expected: 'recharge' },
+      upgrade: { agentId: 'amr', expected: 'upgrade' },
+      switch_model: { agentId: 'claude', expected: 'switch-model' },
+      reduce_context: { agentId: 'claude', expected: 'reduce-context' },
+      install_cli: { agentId: 'claude', expected: 'retry' },
+      fix_config: { agentId: 'claude', expected: 'retry' },
+    } satisfies Record<
       Exclude<TrackingRunFailureUserAction, 'none'>,
-      string | null,
-      string,
-    ]> = [
-      ['retry', 'claude', 'retry'],
-      ['login', 'amr', 'authorize'],
-      ['login', 'antigravity', 'launch-terminal-auth'],
-      ['login', 'claude', 'retry'],
-      ['recharge', 'amr', 'recharge'],
-      ['upgrade', 'amr', 'upgrade'],
-      ['switch_model', 'claude', 'switch-model'],
-      ['switch_model', 'antigravity', 'launch-terminal-switch-model'],
-      ['switch_model', 'amr', 'switch-model'],
-      ['reduce_context', 'claude', 'reduce-context'],
-      ['install_cli', 'claude', 'retry'],
-      ['fix_config', 'claude', 'retry'],
-    ];
-    for (const [userAction, agentId, expected] of cases) {
+      { agentId: string | null; expected: string }
+    >;
+
+    for (const [userAction, { agentId, expected }] of Object.entries(userActionMap) as Array<[
+      Exclude<TrackingRunFailureUserAction, 'none'>,
+      { agentId: string | null; expected: string },
+    ]>) {
       const ui = resolveRunFailureUi('AGENT_EXECUTION_FAILED', agentId, {
         userAction,
       });
       expect(ui.primaryAction).toBe(expected);
+    }
+
+    // Additional agent-specific variants
+    expect(
+      resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'antigravity', {
+        userAction: 'login',
+      }).primaryAction,
+    ).toBe('launch-terminal-auth');
+    expect(
+      resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'claude', {
+        userAction: 'login',
+      }).primaryAction,
+    ).toBe('retry');
+    expect(
+      resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'antigravity', {
+        userAction: 'switch_model',
+      }).primaryAction,
+    ).toBe('launch-terminal-switch-model');
+    expect(
+      resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'amr', {
+        userAction: 'switch_model',
+      }).primaryAction,
+    ).toBe('switch-model');
+  });
+
+  it('maps every failure_category to the expected title/display (compile-time exhaustive)', () => {
+    const categoryMap = {
+      auth: 'chat.runError.title.signInRequired',
+      rate_limit: 'chat.runError.title.rateLimited',
+      insufficient_balance: 'chat.runError.title.balance',
+      entitlement_required: 'chat.amrBalanceGate.title',
+      model_unavailable: 'chat.runError.title.modelUnavailable',
+      prompt_too_large: 'chat.runError.title.promptTooLarge',
+      upstream_unavailable: 'chat.runError.title.upstreamUnavailable',
+      timeout: 'chat.runError.title.timedOut',
+      empty_output: 'chat.runError.title.emptyOutput',
+      tool_error: 'chat.runError.title.generic',
+      process_exit: 'chat.runError.title.generic',
+      user_cancel: 'chat.runError.title.generic',
+      unknown: 'chat.runError.title.generic',
+    } satisfies Record<TrackingRunFailureCategory, string>;
+
+    for (const [category, expectedTitleKey] of Object.entries(categoryMap) as Array<[
+      TrackingRunFailureCategory,
+      string,
+    ]>) {
+      const ui = resolveRunFailureUi('AGENT_EXECUTION_FAILED', 'claude', {
+        failureCategory: category,
+      });
+      expect(ui.titleKey).toBe(expectedTitleKey);
     }
   });
 

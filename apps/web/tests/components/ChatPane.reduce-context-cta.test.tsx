@@ -17,6 +17,7 @@ import { forwardRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatPane } from '../../src/components/ChatPane';
+import { appendErrorStatusEvent, runFailureFieldsFromError } from '../../src/runtime/chat-events';
 import type { AppConfig, ChatMessage } from '../../src/types';
 
 vi.mock('../../src/i18n', () => ({
@@ -146,5 +147,62 @@ describe('ChatPane reduce-context CTA', () => {
 
     fireEvent.click(cta);
     expect(onNewConversation).not.toHaveBeenCalled();
+  });
+
+  it('renders clickable recovery CTA when error is ingested via live appendErrorStatusEvent and mounted without onRetry', () => {
+    const rawError = Object.assign(new Error('Prompt exceeds token limit.'), {
+      code: 'PROMPT_TOO_LARGE',
+      failureCategory: 'prompt_too_large',
+      userAction: 'reduce_context',
+    });
+    const baseMessage: ChatMessage = {
+      id: 'msg-live-err',
+      role: 'assistant',
+      content: '',
+      createdAt: Date.now(),
+      runId: 'run-live',
+      runStatus: 'running',
+      agentId: 'claude',
+      events: [],
+    };
+    const failure = runFailureFieldsFromError(rawError);
+    const failedMessage = {
+      ...appendErrorStatusEvent(baseMessage, rawError.message, rawError.code, failure),
+      runStatus: 'failed' as const,
+      endedAt: Date.now(),
+    };
+
+    const onNewConversation = vi.fn();
+    render(
+      <ChatPane
+        messages={[failedMessage]}
+        streaming={false}
+        error={rawError.message}
+        projectId="project-1"
+        projectFiles={[]}
+        onEnsureProject={async () => 'project-1'}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onNewConversation={onNewConversation}
+        conversations={[
+          { projectId: 'project-1', id: 'conv-1', title: 'Current', createdAt: 1, updatedAt: 1 },
+        ]}
+        activeConversationId="conv-1"
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        config={{
+          agentId: 'claude',
+          agentCliEnv: {},
+          installationId: 'install-123',
+          telemetry: { metrics: true },
+        } as unknown as AppConfig}
+      />,
+    );
+
+    const cta = screen.getByText('chat.runError.reduceContextCta');
+    expect(cta).toBeTruthy();
+
+    fireEvent.click(cta);
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
   });
 });
