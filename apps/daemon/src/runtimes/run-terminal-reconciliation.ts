@@ -13,6 +13,7 @@ import {
 import { appendMessageStatusEvent } from '../db.js';
 import { reconcileStrategyTaskRunTerminal } from '../strategies/task-store.js';
 import { classifyRunFailure } from '../run-failure-classification.js';
+import { summarizeRunDiagnosticsForAnalytics } from '../run-diagnostics.js';
 import { deriveRunErrorCode, runResultFromStatus } from '../run-result.js';
 import { runAskedUserQuestion } from './run-artifacts.js';
 import {
@@ -29,6 +30,12 @@ import {
   type RunTelemetryDeliveryResult,
   type RunTelemetryDeliveryStateV1,
 } from '../observability/delivery-state.js';
+import {
+  normalizeTelemetryAppVersion,
+  normalizeTelemetryAppVersionInfo,
+  UNKNOWN_APP_VERSION,
+  type AppVersionInfo,
+} from '../app-version.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
 const RECONCILED_STATUS_MESSAGE = 'Run terminal state reconciled after daemon restart.';
@@ -59,6 +66,7 @@ interface DurableRunState extends RestartRecoverableDurableRunState {
   conversationId: string | null;
   assistantMessageId: string | null;
   agentId: string | null;
+  appVersionInfo?: AppVersionInfo;
   cancelOrigin?: TrackingRunCancelOrigin | null;
   terminalTrigger?: TrackingRunTerminalTrigger | null;
   createdAt: number;
@@ -94,7 +102,7 @@ interface AnalyticsLike {
 
 interface ReconciliationOptions {
   analytics: AnalyticsLike;
-  appVersion: string;
+  appVersion?: string;
   appVersionInfo?: unknown;
   db: Database.Database;
   reportLangfuse(args: Record<string, unknown>): unknown | Promise<unknown>;
@@ -115,6 +123,21 @@ interface ReconciliationOptions {
   };
   runsLogDir: string;
   finalizeTerminalLocally?: (run: DurableRunState, status: string, terminalAt: number) => void;
+}
+
+function appVersionForRun(state: DurableRunState, options: ReconciliationOptions): string {
+  return normalizeTelemetryAppVersionInfo(state.appVersionInfo)?.version
+    ?? normalizeTelemetryAppVersionInfo(options.appVersionInfo)?.version
+    ?? normalizeTelemetryAppVersion(options.appVersion)
+    ?? UNKNOWN_APP_VERSION;
+}
+
+function appVersionInfoForRun(
+  state: DurableRunState,
+  options: ReconciliationOptions,
+): AppVersionInfo | null {
+  return normalizeTelemetryAppVersionInfo(state.appVersionInfo)
+    ?? normalizeTelemetryAppVersionInfo(options.appVersionInfo);
 }
 
 export interface RunTerminalReconciliationResult {
@@ -447,6 +470,12 @@ export async function reconcileDurableRunTerminals(
         terminal_recovery_reason: recoveryReason,
         ...(errorCode ? { error_code: errorCode } : {}),
         ...(failure ?? {}),
+        ...summarizeRunDiagnosticsForAnalytics({
+          events,
+          exitCode: state.exitCode ?? null,
+          signal: state.signal ?? null,
+          cancelRequested: state.status === 'canceled',
+        }),
       };
       const taskLineage: RunTaskLineageProps = {
         task_execution_id:
@@ -479,7 +508,7 @@ export async function reconcileDurableRunTerminals(
       await Promise.resolve(options.analytics.capture({
         eventName: 'run_finished',
         context: state.analyticsRecovery.context,
-        appVersion: options.appVersion,
+        appVersion: appVersionForRun(state, options),
         properties,
         insertId: `${state.analyticsRecovery.insertId}-finish`,
       }));
@@ -570,7 +599,7 @@ export async function reconcileDurableRunTerminals(
             run: hydrateRun(state, events),
             persistedRunStatus: state.status,
             persistedEndedAt: state.updatedAt,
-            appVersion: options.appVersionInfo ?? null,
+            appVersion: appVersionInfoForRun(state, options),
             deliveryIdempotencyKey: state.telemetryDelivery.idempotencyKey,
             onDeliveryAttempt: () => {
               state.telemetryDelivery = recordRunTelemetryDeliveryAttempt(

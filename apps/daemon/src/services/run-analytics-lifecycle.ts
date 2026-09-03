@@ -74,6 +74,7 @@ import {
   runArtifactCountForRun,
   runDesignSystemCreatedForRun,
   runFilesWrittenForRun,
+  runAdmissionEvidenceForRun,
   runPreviewModuleCountForRun,
 } from '../runtimes/run-lifecycle-analytics.js';
 import { odNextRolloutAnalyticsProperties } from '../strategies/od-next/rollout-analytics.js';
@@ -728,6 +729,7 @@ export function createRunAnalyticsLifecycle(
             cancelOrigin: run.cancelOrigin ?? null,
             terminalTrigger: run.terminalTrigger ?? null,
             events: run.events,
+            admissionEvidence: runAdmissionEvidenceForRun(run),
           });
           const usageAnalytics = scanRunEventsForUsageAnalytics(
             run.events,
@@ -909,6 +911,7 @@ export function createRunAnalyticsLifecycle(
           });
           const diagnosticsAnalytics = summarizeRunDiagnosticsForAnalytics({
             events: run.events,
+            promptBudgetDiagnostics: run.promptBudgetDiagnostics,
             exitCode: status.exitCode ?? null,
             signal: status.signal ?? null,
             cancelRequested: !!run.cancelRequested,
