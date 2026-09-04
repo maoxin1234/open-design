@@ -48,6 +48,7 @@ import {
   agentProviderIdForRunAnalytics,
   amrUserIdForRunAnalytics,
   hasExplicitRequestedModelForAnalytics,
+  perRequestUsageForRun,
   runtimeTypeForRunAnalytics,
   scanRunEventsForPerRequestUsageAnalytics,
   scanRunEventsForUsageAnalytics,
@@ -736,7 +737,7 @@ export function createRunAnalyticsLifecycle(
             reqBody.model,
             userQueryTokens,
           );
-          const perRequestUsage = scanRunEventsForPerRequestUsageAnalytics(run.events);
+          const perRequestUsage = perRequestUsageForRun(run);
           // Whether this run is a non-first turn in its conversation — i.e. a
           // prior completed assistant turn exists (excluding this run's own
           // placeholder). The session-reuse cache win only applies to follow-up

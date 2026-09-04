@@ -196,6 +196,104 @@ const PER_REQUEST_TOKEN_KEYS = [
   'cache_read_input_tokens',
 ] as const;
 
+export interface PerRequestUsageLedger {
+  records: PerRequestUsageRecord[];
+  sums: Record<(typeof PER_REQUEST_TOKEN_KEYS)[number], number>;
+  seen: Record<(typeof PER_REQUEST_TOKEN_KEYS)[number], boolean>;
+  aggregateInput?: number | undefined;
+  aggregateOutput?: number | undefined;
+  aggregateCacheCreation?: number | undefined;
+  aggregateCacheRead?: number | undefined;
+  requestUsageEvents: Array<{
+    requestId: string;
+    usage?: Record<string, unknown> | null | undefined;
+    timestamp: number;
+  }>;
+}
+
+export function createRunPerRequestUsageLedger(): PerRequestUsageLedger {
+  return {
+    records: [],
+    sums: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    seen: {
+      input_tokens: false,
+      output_tokens: false,
+      cache_creation_input_tokens: false,
+      cache_read_input_tokens: false,
+    },
+    requestUsageEvents: [],
+  };
+}
+
+export function foldEventIntoPerRequestUsageLedger(
+  ledger: PerRequestUsageLedger,
+  record: { event?: unknown; data?: unknown; timestamp?: number },
+): void {
+  if (record?.event !== 'agent') return;
+  const data = record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+    ? (record.data as Record<string, unknown>)
+    : null;
+  if (!data) return;
+  if (data.type === 'request_usage' && typeof data.requestId === 'string') {
+    const usage = data.usage && typeof data.usage === 'object' && !Array.isArray(data.usage)
+      ? (data.usage as Record<string, unknown>)
+      : {};
+    const entry: PerRequestUsageRecord = { request_id: data.requestId };
+    for (const key of PER_REQUEST_TOKEN_KEYS) {
+      const val = readNumber(usage[key]);
+      if (val !== undefined) {
+        entry[key] = val;
+        ledger.sums[key] += val;
+        ledger.seen[key] = true;
+      }
+    }
+    ledger.records.push(entry);
+    ledger.requestUsageEvents.push({
+      requestId: data.requestId,
+      usage,
+      timestamp: typeof record.timestamp === 'number' ? record.timestamp : Date.now(),
+    });
+  } else if (data.type === 'usage' && data.usage && typeof data.usage === 'object' && !Array.isArray(data.usage)) {
+    const usage = data.usage as Record<string, unknown>;
+    ledger.aggregateInput = firstNumber(usage, ['input_tokens', 'prompt_tokens']);
+    ledger.aggregateOutput = firstNumber(usage, ['output_tokens', 'completion_tokens']);
+    ledger.aggregateCacheCreation = firstNumber(usage, ['cache_creation_input_tokens']);
+    ledger.aggregateCacheRead = firstNumber(usage, ['cache_read_input_tokens']);
+  }
+}
+
+export function perRequestUsageFromLedger(ledger: PerRequestUsageLedger): PerRequestUsageAnalytics {
+  let reconciles: boolean | null = null;
+  const aggregateFields: Array<[number | undefined, number]> = [
+    [ledger.aggregateInput, ledger.sums.input_tokens],
+    [ledger.aggregateOutput, ledger.sums.output_tokens],
+    [ledger.aggregateCacheCreation, ledger.sums.cache_creation_input_tokens],
+    [ledger.aggregateCacheRead, ledger.sums.cache_read_input_tokens],
+  ];
+  if (ledger.records.length > 0 && aggregateFields.some(([agg]) => agg !== undefined)) {
+    reconciles = aggregateFields.every(([agg, sum]) => agg === undefined || sum === agg);
+  }
+
+  return {
+    records: [...ledger.records],
+    request_count: ledger.records.length,
+    ...(ledger.seen.input_tokens ? { input_tokens_sum: ledger.sums.input_tokens } : {}),
+    ...(ledger.seen.output_tokens ? { output_tokens_sum: ledger.sums.output_tokens } : {}),
+    ...(ledger.seen.cache_creation_input_tokens
+      ? { cache_creation_input_tokens_sum: ledger.sums.cache_creation_input_tokens }
+      : {}),
+    ...(ledger.seen.cache_read_input_tokens
+      ? { cache_read_input_tokens_sum: ledger.sums.cache_read_input_tokens }
+      : {}),
+    reconciles_aggregate: reconciles,
+  };
+}
+
 /** Collect the per-request usage records emitted by the claude-stream-json
  *  parser and check the reconciliation invariant against the run-level
  *  aggregate (`result.usage`). Pure and order-preserving so the Langfuse
@@ -204,83 +302,26 @@ const PER_REQUEST_TOKEN_KEYS = [
 export function scanRunEventsForPerRequestUsageAnalytics(
   events: RunEventForAnalyticsObservability[],
 ): PerRequestUsageAnalytics {
-  const records: PerRequestUsageRecord[] = [];
-  const sums: Record<(typeof PER_REQUEST_TOKEN_KEYS)[number], number> = {
-    input_tokens: 0,
-    output_tokens: 0,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
-  };
-  const seen: Record<(typeof PER_REQUEST_TOKEN_KEYS)[number], boolean> = {
-    input_tokens: false,
-    output_tokens: false,
-    cache_creation_input_tokens: false,
-    cache_read_input_tokens: false,
-  };
-  let aggregateInput: number | undefined;
-  let aggregateOutput: number | undefined;
-  let aggregateCacheCreation: number | undefined;
-  let aggregateCacheRead: number | undefined;
-
+  const ledger = createRunPerRequestUsageLedger();
   for (const ev of events) {
-    if (ev?.event !== 'agent') continue;
-    const data = ev.data as
-      | { type?: string; requestId?: unknown; usage?: Record<string, unknown> | null }
-      | null
-      | undefined;
-    if (!data) continue;
-    if (data.type === 'request_usage' && typeof data.requestId === 'string') {
-      const usage = data.usage && typeof data.usage === 'object' ? data.usage : {};
-      const record: PerRequestUsageRecord = { request_id: data.requestId };
-      for (const key of PER_REQUEST_TOKEN_KEYS) {
-        const value = readNumber(usage[key]);
-        if (value !== undefined) {
-          record[key] = value;
-          sums[key] += value;
-          seen[key] = true;
-        }
-      }
-      records.push(record);
-    } else if (data.type === 'usage' && data.usage && typeof data.usage === 'object') {
-      // Last aggregate wins — mirrors scanRunEventsForUsageAnalytics taking the
-      // final `result.usage` as the run-level number.
-      aggregateInput = firstNumber(data.usage, ['input_tokens', 'prompt_tokens']);
-      aggregateOutput = firstNumber(data.usage, ['output_tokens', 'completion_tokens']);
-      aggregateCacheCreation = firstNumber(data.usage, ['cache_creation_input_tokens']);
-      aggregateCacheRead = firstNumber(data.usage, ['cache_read_input_tokens']);
-    }
+    foldEventIntoPerRequestUsageLedger(ledger, ev);
   }
+  return perRequestUsageFromLedger(ledger);
+}
 
-  // The #4610 invariant covers the whole token surface, not just prompt/
-  // completion: a run whose input/output match but whose cache creation/read
-  // tokens drift has NOT reconciled. Fold every aggregate field that
-  // `result.usage` reported into the boolean (each compared only when the
-  // aggregate carries it, mirroring the input/output leniency), so the
-  // telemetry flag can't certify a partial match.
-  let reconciles: boolean | null = null;
-  const aggregateFields: Array<[number | undefined, number]> = [
-    [aggregateInput, sums.input_tokens],
-    [aggregateOutput, sums.output_tokens],
-    [aggregateCacheCreation, sums.cache_creation_input_tokens],
-    [aggregateCacheRead, sums.cache_read_input_tokens],
-  ];
-  if (records.length > 0 && aggregateFields.some(([agg]) => agg !== undefined)) {
-    reconciles = aggregateFields.every(([agg, sum]) => agg === undefined || sum === agg);
+/** Read a run's per-request usage analytics, preferring the truncation-proof
+ *  ledger populated as events arrive and falling back to scanning run.events
+ *  for direct callers / tests. */
+export function perRequestUsageForRun(run: {
+  perRequestUsageLedger?: PerRequestUsageLedger | null;
+  events?: RunEventForAnalyticsObservability[] | unknown;
+}): PerRequestUsageAnalytics {
+  if (run?.perRequestUsageLedger) {
+    return perRequestUsageFromLedger(run.perRequestUsageLedger);
   }
-
-  return {
-    records,
-    request_count: records.length,
-    ...(seen.input_tokens ? { input_tokens_sum: sums.input_tokens } : {}),
-    ...(seen.output_tokens ? { output_tokens_sum: sums.output_tokens } : {}),
-    ...(seen.cache_creation_input_tokens
-      ? { cache_creation_input_tokens_sum: sums.cache_creation_input_tokens }
-      : {}),
-    ...(seen.cache_read_input_tokens
-      ? { cache_read_input_tokens_sum: sums.cache_read_input_tokens }
-      : {}),
-    reconciles_aggregate: reconciles,
-  };
+  return scanRunEventsForPerRequestUsageAnalytics(
+    Array.isArray(run?.events) ? (run.events as RunEventForAnalyticsObservability[]) : [],
+  );
 }
 
 export interface RunTimingAnalytics {

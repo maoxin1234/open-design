@@ -17,8 +17,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { createClaudeStreamHandler } from '../../src/runtimes/claude-stream.js';
-import { scanRunEventsForPerRequestUsageAnalytics } from '../../src/run-analytics-observability.js';
+import {
+  createRunPerRequestUsageLedger,
+  foldEventIntoPerRequestUsageLedger,
+  perRequestUsageForRun,
+  scanRunEventsForPerRequestUsageAnalytics,
+} from '../../src/run-analytics-observability.js';
 import { daemonAgentPayloadToPersistedAgentEvent } from '../../src/runtimes/chat-run-messages.js';
+import { createChatRunService } from '../../src/runtimes/runs.js';
 // Untyped replay-mock helper (plain .mjs, no shipped declarations) — imported
 // so the per-request capture path is validated against the real mock output.
 // @ts-expect-error: no type declarations for the mocks helper
@@ -303,5 +309,77 @@ describe('claude-stream per-request usage capture', () => {
       cacheCreationInputTokens: 2,
       cacheReadInputTokens: 4,
     });
+  });
+
+  it('preserves early per-request usage and reconciles aggregate when run.events is truncated past 2,000 events', () => {
+    // Simulate createChatRunService with onEventEmitted folding into run.perRequestUsageLedger
+    const run = {
+      id: 'run-long-truncation',
+      events: [] as Array<{ id: number; event: string; data: unknown }>,
+      perRequestUsageLedger: createRunPerRequestUsageLedger(),
+    };
+
+    const emit = (event: string, data: unknown) => {
+      const record = { id: run.events.length + 1, event, data };
+      foldEventIntoPerRequestUsageLedger(run.perRequestUsageLedger, record);
+      run.events.push(record);
+      // Ring-buffer truncation capped at 2,000 events
+      if (run.events.length > 2_000) {
+        run.events.splice(0, run.events.length - 2_000);
+      }
+    };
+
+    // 1. Early request_usage emitted near start of run
+    emit('agent', {
+      type: 'request_usage',
+      requestId: 'msg_early_1',
+      usage: {
+        input_tokens: 120,
+        output_tokens: 45,
+        cache_creation_input_tokens: 10,
+        cache_read_input_tokens: 15,
+      },
+    });
+
+    // 2. More than 2,000 subsequent events (e.g. streaming output, stdout, tool deltas)
+    for (let i = 0; i < 2_050; i++) {
+      emit('stdout', { chunk: `line ${i}\n` });
+    }
+
+    // 3. Final aggregate usage emitted at end of run
+    emit('agent', {
+      type: 'usage',
+      usage: {
+        input_tokens: 120,
+        output_tokens: 45,
+        cache_creation_input_tokens: 10,
+        cache_read_input_tokens: 15,
+      },
+    });
+
+    // Verify run.events was truncated and no longer has the early request_usage event
+    expect(run.events.length).toBe(2_000);
+    const hasRequestUsageInEvents = run.events.some(
+      (e) => (e.data as { type?: string })?.type === 'request_usage',
+    );
+    expect(hasRequestUsageInEvents).toBe(false);
+
+    // Verify perRequestUsageForRun reads the ledger and preserves the full record & reconciliation
+    const analytics = perRequestUsageForRun(run);
+    expect(analytics.request_count).toBe(1);
+    expect(analytics.records).toEqual([
+      {
+        request_id: 'msg_early_1',
+        input_tokens: 120,
+        output_tokens: 45,
+        cache_creation_input_tokens: 10,
+        cache_read_input_tokens: 15,
+      },
+    ]);
+    expect(analytics.input_tokens_sum).toBe(120);
+    expect(analytics.output_tokens_sum).toBe(45);
+    expect(analytics.cache_creation_input_tokens_sum).toBe(10);
+    expect(analytics.cache_read_input_tokens_sum).toBe(15);
+    expect(analytics.reconciles_aggregate).toBe(true);
   });
 });

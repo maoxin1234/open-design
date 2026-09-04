@@ -71,6 +71,7 @@ import {
 } from './run-failure-classification.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
 import { runAdmissionEvidenceForRun } from './runtimes/run-lifecycle-analytics.js';
+import type { PerRequestUsageLedger } from './run-analytics-observability.js';
 import { buildTraceObjectManifests } from './trace-object-manifest.js';
 import type { TraceArtifactObjectSource, TraceObjectUploadManifests } from './trace-object-manifest.js';
 import { getDetectedRuntimeVersions } from './runtimes/detection.js';
@@ -125,6 +126,7 @@ export interface DaemonRunRecord {
   retrySuppressedReason?: string;
   retryOriginalFailure?: RunFailureClassification;
   promptBudgetDiagnostics?: Partial<RunDiagnosticsAnalytics> | null;
+  perRequestUsageLedger?: PerRequestUsageLedger | null;
   strategyRolloutDecision?: OdNextRolloutDecision | null;
 }
 
@@ -157,6 +159,7 @@ export interface SafeRunQualityDaemonRunRecord {
   terminalTrigger?: TrackingRunTerminalTrigger | null | undefined;
   analyticsTelemetry?: RunTelemetryTimestamps | null | undefined;
   promptBudgetDiagnostics?: Partial<RunDiagnosticsAnalytics> | null | undefined;
+  perRequestUsageLedger?: PerRequestUsageLedger | null | undefined;
   userPrompt?: string | undefined;
   projectAttachmentPaths?: string[] | undefined;
   projectMetadata?: Record<string, unknown> | null | undefined;
@@ -503,10 +506,12 @@ function collectAgentEvents(
   runEndedAt: number,
   agentId: string | null | undefined,
   retainedPromptBudget?: Partial<RunDiagnosticsAnalytics> | null,
+  retainedPerRequestUsage?: PerRequestUsageLedger | null,
 ): AgentEventSummary[] {
   const out: AgentEventSummary[] = [];
   const statusCounts = new Map<string, number>();
   const diagnosticCounts = new Map<string, number>();
+  const seenRequestIds = new Set<string>();
   let thinkingCount = 0;
   let usageCount = 0;
   let requestUsageCount = 0;
@@ -620,7 +625,9 @@ function collectAgentEvents(
       const promptBudget = promptBudgetAnalyticsFromDiagnostic(
         data as Record<string, unknown>,
       );
-      if (promptBudget) promptBudgetObserved = true;
+      if (promptBudget?.prompt_budget_version === 'prompt_budget_v1') {
+        promptBudgetObserved = true;
+      }
       out.push({
         id: `diagnostic-${diagnosticName}-${index}`,
         name: `agent-diagnostic:${diagnosticName}`,
@@ -628,7 +635,10 @@ function collectAgentEvents(
         input: eventInput('diagnostic'),
         output: toolExecutionLifecycle ?? {
           name: diagnosticName,
-          ...(typeof data.source === 'string' ? { source: data.source } : {}),
+          source:
+            typeof data.source === 'string' && data.source.length > 0
+              ? data.source
+              : 'agent',
           ...(typeof data.reason === 'string' ? { reason: data.reason } : {}),
           ...(typeof data.elapsedMs === 'number' ? { elapsed_ms: data.elapsedMs } : {}),
           ...(typeof data.suppressedChars === 'number' ? { suppressed_chars: data.suppressedChars } : {}),
@@ -678,6 +688,7 @@ function collectAgentEvents(
       // request source instead of only the run-level aggregate (#4610).
       const index = requestUsageCount;
       requestUsageCount += 1;
+      seenRequestIds.add(data.requestId);
       out.push({
         id: `request-usage-${index}`,
         name: 'agent-request-usage',
@@ -686,6 +697,25 @@ function collectAgentEvents(
         output: {
           request_id: data.requestId,
           ...(data.usage && typeof data.usage === 'object' ? { usage: data.usage } : {}),
+        },
+      });
+    }
+  }
+  if (retainedPerRequestUsage?.requestUsageEvents?.length) {
+    for (const req of retainedPerRequestUsage.requestUsageEvents) {
+      if (seenRequestIds.has(req.requestId)) continue;
+      seenRequestIds.add(req.requestId);
+      const index = requestUsageCount;
+      requestUsageCount += 1;
+      const timestamp = Math.min(Math.max(req.timestamp, runStartedAt), runEndedAt);
+      out.push({
+        id: `request-usage-${index}`,
+        name: 'agent-request-usage',
+        timestamp,
+        input: { ...eventInput('request_usage'), request_id: req.requestId },
+        output: {
+          request_id: req.requestId,
+          ...(req.usage && typeof req.usage === 'object' ? { usage: req.usage } : {}),
         },
       });
     }
@@ -1391,6 +1421,7 @@ export async function reportRunCompletedFromDaemon(
         endedAt,
         run.agentId,
         run.promptBudgetDiagnostics,
+        run.perRequestUsageLedger,
       ),
       eventsSummary: summarizeEvents(run.events, durationMs),
       prefs,
